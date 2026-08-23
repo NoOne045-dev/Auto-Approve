@@ -1,0 +1,13 @@
+# Telegram MTProto Framework (Kurigram - maintained Pyrogram fork)
+kurigram>=2.1.20
+tgcrypto>=1.2.5
+
+# Database (Async MongoDB)
+motor>=3.6.0
+pymongo>=4.9.0
+
+# Async HTTP & Utilities
+aiohttp>=3.10.0
+aiofiles>=24.1.0
+python-dotenv>=1.0.1
+

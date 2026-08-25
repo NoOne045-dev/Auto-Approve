@@ -33,8 +33,8 @@ async def main():
         LOGGER.critical("Please copy .env.example to .env and configure your credentials.")
         sys.exit(1)
 
-    if not config.MONGO_URI:
-        LOGGER.critical("CRITICAL: MONGO_URI is missing in .env! MongoDB is required.")
+    if not config.MONGO_URL:
+        LOGGER.critical("CRITICAL: MONGO_URL is missing in .env! MongoDB is required.")
         sys.exit(1)
 
     # Connect to MongoDB

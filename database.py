@@ -25,7 +25,7 @@ class MongoDatabase:
 
     async def connect(self) -> None:
         if not self.uri:
-            LOGGER.error("CRITICAL: MONGO_URI is missing in environment or .env file!")
+            LOGGER.error("CRITICAL: MONGO_URL is missing in environment or .env file!")
             return
         
         LOGGER.info(f"Connecting to MongoDB database '{self.db_name}'...")
@@ -181,4 +181,4 @@ class MongoDatabase:
 
 
 # Singleton database instance
-db = MongoDatabase(uri=config.MONGO_URI, db_name=config.DATABASE_NAME)
+db = MongoDatabase(uri=config.MONGO_URL, db_name=config.DATABASE_NAME)

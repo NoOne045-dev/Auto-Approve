@@ -84,7 +84,7 @@ Auto-Approve-Bot/
 4. **Configure Environment Variables:**
    ```bash
    cp .env.example .env
-   # Edit .env with your BOT_TOKEN, API_ID, API_HASH, OWNER_ID, and MONGO_URI
+   # Edit .env with your BOT_TOKEN, API_ID, API_HASH, OWNER_ID, and MONGO_URL
    ```
 
 5. **Start the bot:**
@@ -121,7 +121,7 @@ Auto-Approve-Bot/
 | `API_ID` | **Yes** | Telegram API ID from [my.telegram.org](https://my.telegram.org/apps) | `12345678` |
 | `API_HASH` | **Yes** | Telegram API Hash from [my.telegram.org](https://my.telegram.org/apps) | `0123456789abcdef...` |
 | `OWNER_ID` | **Yes** | Telegram User ID of Bot Owner | `123456789` |
-| `MONGO_URI` | **Yes** | MongoDB Connection URI (e.g. MongoDB Atlas) | `mongodb+srv://...` |
+| `MONGO_URL` | **Yes** | MongoDB Connection URI (e.g. MongoDB Atlas) | `mongodb+srv://...` |
 | `ADMINS` | No | Additional Admin User IDs (separated by spaces) | `987654321` |
 | `MAX_APPROVALS_PER_SECOND` | No | Token bucket approval throughput limit (default `25`) | `25` |
 | `ENABLE_CAS_CHECK` | No | Enable Combot Anti-Spam lookup (default `true`) | `true` |

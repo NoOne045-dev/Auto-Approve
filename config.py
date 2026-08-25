@@ -25,7 +25,7 @@ _raw_admins = os.getenv("ADMINS", "")
 ADMINS: List[int] = [int(x) for x in re.split(r"[\s,]+", _raw_admins.strip()) if x.isdigit()]
 
 # ─── Database ───────────────────────────────────────────────────────────────
-MONGO_URI: str = os.getenv("MONGO_URI", "")
+MONGO_URL: str = os.getenv("MONGO_URL", "")
 DATABASE_NAME: str = os.getenv("DATABASE_NAME", "AutoApproveBot")
 
 # ─── Rate Limiting & Concurrency ────────────────────────────────────────────

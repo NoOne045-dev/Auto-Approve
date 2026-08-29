@@ -2,7 +2,6 @@
 config.py — Central bot configuration.
 Reads settings from environment variables or .env file.
 """
-
 import os
 import re
 import logging
@@ -34,9 +33,12 @@ MAX_APPROVALS_PER_SECOND: int = int(os.getenv("MAX_APPROVALS_PER_SECOND", "25"))
 # ─── Anti-Spam ──────────────────────────────────────────────────────────────
 ENABLE_CAS_CHECK: bool = os.getenv("ENABLE_CAS_CHECK", "true").lower() in ("1", "true", "yes")
 
+# ─── Web Server (required for Render "Web Service" port binding) ───────────
+# Render injects PORT automatically for web services; default kept for local runs.
+PORT: int = int(os.getenv("PORT", "8080") if os.getenv("PORT", "").strip().isdigit() else 8080)
+
 # ─── Logging ────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
-
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
@@ -47,6 +49,7 @@ LOGGER = logging.getLogger("AutoApproveBot")
 # ─── Helper Functions ───────────────────────────────────────────────────────
 def is_owner(user_id: int) -> bool:
     return OWNER_ID != 0 and user_id == OWNER_ID
+
 
 def is_admin(user_id: int) -> bool:
     return is_owner(user_id) or user_id in ADMINS

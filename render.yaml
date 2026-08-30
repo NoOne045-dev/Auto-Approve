@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: auto-approve-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /healthz
+    numInstances: 1
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: ADMINS
+        sync: false
+      - key: MONGO_URL
+        sync: false
+      - key: DATABASE_NAME
+        value: AutoApproveBot
+      - key: MAX_APPROVALS_PER_SECOND
+        value: "25"
+      - key: ENABLE_CAS_CHECK
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PORT
+        value: "8080"

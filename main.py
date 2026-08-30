@@ -2,14 +2,16 @@
 main.py — Main application entry point.
 Powered by Kurigram (actively maintained Pyrogram fork) and Async MongoDB (Motor).
 """
-
 import asyncio
 import sys
+
 from pyrogram import Client, idle
+
 import config
 from config import LOGGER
 from database import db
 from plugins.join_request import start_approval_workers
+from webserver import start_webserver
 
 # Initialize Kurigram client with plugins directory
 app = Client(
@@ -47,7 +49,9 @@ async def main():
     # Connect to MongoDB
     await db.connect()
 
-
+    # Start web server first — Render marks a "Web Service" deploy as failed
+    # if nothing binds to $PORT within the deploy timeout.
+    runner = await start_webserver()
     # Start Telegram Client
     await app.start()
     me = await app.get_me()
@@ -69,6 +73,7 @@ async def main():
     LOGGER.info("Stopping bot gracefully...")
     await scheduler.stop()
     await app.stop()
+    await runner.cleanup()
     await db.close()
     LOGGER.info("Bot stopped successfully.")
 
@@ -78,4 +83,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         LOGGER.info("Bot exited.")
-

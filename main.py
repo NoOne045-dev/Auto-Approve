@@ -37,8 +37,16 @@ async def main():
         LOGGER.critical("CRITICAL: MONGO_URL is missing in .env! MongoDB is required.")
         sys.exit(1)
 
+    # Validate session encryption key
+    if not config.validate_session_encryption_key():
+        LOGGER.critical("CRITICAL: SESSION_ENCRYPTION_KEY is missing, placeholder, or invalid in .env!")
+        LOGGER.critical("Please set a valid 32-byte Fernet key. Generate one with:")
+        LOGGER.critical("python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
+        sys.exit(1)
+
     # Connect to MongoDB
     await db.connect()
+
 
     # Start Telegram Client
     await app.start()
@@ -48,13 +56,18 @@ async def main():
     # Start async approval queue workers
     start_approval_workers(app, count=4)
 
-    LOGGER.info("Bot is active and listening for join requests...")
+    # Start persistent job scheduler
+    from core.scheduler import scheduler
+    scheduler.start(app)
+
+    LOGGER.info("Bot is active, scheduler is running, and listening for join requests...")
 
     # Keep running until terminated
     await idle()
 
     # Graceful shutdown
     LOGGER.info("Stopping bot gracefully...")
+    await scheduler.stop()
     await app.stop()
     await db.close()
     LOGGER.info("Bot stopped successfully.")

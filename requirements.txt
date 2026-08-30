@@ -11,3 +11,8 @@ aiohttp>=3.10.0
 aiofiles>=24.1.0
 python-dotenv>=1.0.1
 
+# Security & Timezone
+cryptography>=41.0.0
+tzdata>=2024.1
+
+

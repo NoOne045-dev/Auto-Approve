@@ -179,6 +179,41 @@ class MongoDatabase:
             "rejected": rejected,
         }
 
+    # ================= Collection Access Helpers =================
+    def get_schedules_collection(self):
+        """Return the 'schedules' Motor collection."""
+        return self.db["schedules"] if self.db is not None else None
+
+    def get_plans_collection(self):
+        """Return the 'plans' Motor collection."""
+        return self.db["plans"] if self.db is not None else None
+
+    def get_quotas_collection(self):
+        """Return the 'quotas' Motor collection."""
+        return self.db["quotas"] if self.db is not None else None
+
+    def get_sessions_collection(self):
+        """Return the 'sessions' Motor collection."""
+        return self.db["sessions"] if self.db is not None else None
+
 
 # Singleton database instance
 db = MongoDatabase(uri=config.MONGO_URL, db_name=config.DATABASE_NAME)
+
+
+# Module-level collection helper functions
+def get_schedules_collection():
+    return db.get_schedules_collection()
+
+
+def get_plans_collection():
+    return db.get_plans_collection()
+
+
+def get_quotas_collection():
+    return db.get_quotas_collection()
+
+
+def get_sessions_collection():
+    return db.get_sessions_collection()
+

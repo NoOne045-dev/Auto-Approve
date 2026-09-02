@@ -31,16 +31,23 @@ def _queue_status_text(title: str, status: dict) -> str:
     eta = status["eta_seconds"]
     approved = status["approved"]
     processed = status["processed"]
+    job_id_html = f"<code>{job_id}</code>"
+    position_html = f"<b>{pos_str}</b>"
+    waiting_html = f"<b>{waiting}</b>"
+    started_html = f"<code>{started_str}</code>"
+    eta_html = f"<code>{eta}s</code>"
+    approved_html = f"<b>{approved:,}</b> / {limit_str}"
+    processed_html = f"<b>{processed:,}</b>"
     return (
         f"{style.h('Queue Status')} — <b>{title}</b>\n\n"
-        f"• {style.kv('Job ID', f'<code>{job_id}</code>')}\n"
-        f"• {style.kv('Position', f'<b>{pos_str}</b>')}\n"
-        f"• {style.kv('Jobs Ahead', f'<b>{waiting}</b>')}\n"
-        f"• {style.kv('Started At', f'<code>{started_str}</code>')}\n"
-        f"• {style.kv('ETA', f'<code>{eta}s</code>')}\n\n"
+        f"• {style.kv('Job ID', job_id_html)}\n"
+        f"• {style.kv('Position', position_html)}\n"
+        f"• {style.kv('Jobs Ahead', waiting_html)}\n"
+        f"• {style.kv('Started At', started_html)}\n"
+        f"• {style.kv('ETA', eta_html)}\n\n"
         f"[{bar}]\n"
-        f"• {style.kv('Approved', f'<b>{approved:,}</b> / {limit_str}')}\n"
-        f"• {style.kv('Processed', f'<b>{processed:,}</b>')}"
+        f"• {style.kv('Approved', approved_html)}\n"
+        f"• {style.kv('Processed', processed_html)}"
     )
 
 
@@ -221,17 +228,24 @@ async def cmd_queue(client: Client, msg: Message):
         started_str = status["started_at"].strftime("%H:%M:%S UTC") if status.get("started_at") else "Pending"
         limit_str = f"{status['limit']:,}" if status.get("limit") else style.sc("Unlimited")
         bar = _format_progress_bar(status["approved"], status.get("limit"))
+        job_id_str = f"<code>{status['job_id']}</code>"
+        position_str = f"<b>{pos_str}</b>"
+        waiting_str = f"<b>{status['waiting']}</b>"
+        started_html = f"<code>{started_str}</code>"
+        eta_html = f"<code>{status['eta_seconds']}s</code>"
+        approved_html = f"<b>{status['approved']:,}</b> / {limit_str}"
+        processed_html = f"<b>{status['processed']:,}</b>"
 
         text = (
             f"{style.h('Queue Status')} — <b>{title}</b>\n\n"
-            f"• {style.kv('Job ID', f'<code>{status[\"job_id\"]}</code>')}\n"
-            f"• {style.kv('Position', f'<b>{pos_str}</b>')}\n"
-            f"• {style.kv('Jobs Ahead', f'<b>{status[\"waiting\"]}</b>')}\n"
-            f"• {style.kv('Started At', f'<code>{started_str}</code>')}\n"
-            f"• {style.kv('ETA', f'<code>{status[\"eta_seconds\"]}s</code>')}\n\n"
+            f"• {style.kv('Job ID', job_id_str)}\n"
+            f"• {style.kv('Position', position_str)}\n"
+            f"• {style.kv('Jobs Ahead', waiting_str)}\n"
+            f"• {style.kv('Started At', started_html)}\n"
+            f"• {style.kv('ETA', eta_html)}\n\n"
             f"[{bar}]\n"
-            f"• {style.kv('Approved', f'<b>{status[\"approved\"]:,}</b> / {limit_str}')}\n"
-            f"• {style.kv('Processed', f'<b>{status[\"processed\"]:,}</b>')}"
+            f"• {style.kv('Approved', approved_html)}\n"
+            f"• {style.kv('Processed', processed_html)}"
         )
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton(style.btn("Refresh"), callback_data=f"queue_refresh:{target_chat_id}")],
@@ -317,4 +331,3 @@ async def cb_queue_refresh(client: Client, q: CallbackQuery):
         await q.message.edit_text(text, reply_markup=markup)
     except Exception:
         pass
-

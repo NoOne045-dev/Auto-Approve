@@ -26,7 +26,7 @@ from pyrogram.errors import FloodWait, ChatAdminRequired, PeerIdInvalid
 import config
 from config import LOGGER
 from database import db
-from helpers import check_spam
+from helpers import check_spam, style
 from plugins.join_request import approval_queue, _default_chat_config
 
 
@@ -36,15 +36,14 @@ async def approve_pending_requests(client: Client, message):
         # Posted "as the channel" (anonymous admin) — Telegram gives us no
         # user id to check against ADMINS/OWNER_ID in this case.
         await message.reply_text(
-            "⛔ Can't verify who sent this — please send /approve_pending as "
-            "yourself (not anonymously as the channel/group) so I can check "
-            "your admin status."
+            f"{style.h('Cannot verify sender')}\n"
+            "Please send /approve_pending as yourself (not anonymously as the channel/group)."
         )
         return
 
     user_id = message.from_user.id
     if not config.is_admin(user_id):
-        await message.reply_text("⛔ Only bot admins can run this.")
+        await message.reply_text(f"{style.h('Only bot admins can run this')}.")
         return
 
     if message.chat.type.name.lower() == "private":
@@ -54,8 +53,9 @@ async def approve_pending_requests(client: Client, message):
         args = message.command[1:]
         if not args or not args[0].lstrip("-").isdigit():
             await message.reply_text(
-                "Usage in DM: `/approve_pending <chat_id>`\n"
-                "(Run it with no arguments directly inside the group/channel instead.)"
+                f"{style.h('Usage in DM')}\n"
+                "<code>/approve_pending &lt;chat_id&gt;</code>\n"
+                "Run it with no arguments directly inside the group/channel instead."
             )
             return
 
@@ -64,13 +64,12 @@ async def approve_pending_requests(client: Client, message):
             target_chat = await client.get_chat(chat_id)
         except PeerIdInvalid:
             await message.reply_text(
-                "⛔ I don't know that chat. The bot must already be a member/admin "
-                "of it — try sending a message in that chat once first, or double-"
-                "check the chat id."
+                f"{style.h('Unknown chat')}\n"
+                "The bot must already be a member/admin of it. Double-check the chat id."
             )
             return
         except Exception as e:
-            await message.reply_text(f"❌ Couldn't resolve chat `{chat_id}`: {e}")
+            await message.reply_text(f"{style.h('Could not resolve chat')} <code>{chat_id}</code>: {e}")
             return
     else:
         chat_id = message.chat.id
@@ -81,7 +80,7 @@ async def approve_pending_requests(client: Client, message):
         cfg = _default_chat_config(target_chat)
         await db.set_chat(chat_id, cfg)
 
-    status = await message.reply_text("🔎 Fetching pending join requests…")
+    status = await message.reply_text(f"{style.h('Fetching pending join requests')}...")
 
     queued = 0
     declined = 0
@@ -117,18 +116,19 @@ async def approve_pending_requests(client: Client, message):
 
     except ChatAdminRequired:
         await status.edit_text(
-            "⛔ I need the **Add Users / Invite via Link** admin permission "
-            "in this chat to read and approve pending requests."
+            f"{style.h('Admin permission required')}\n"
+            "Grant Add Users / Invite via Link so the bot can read and approve pending requests."
         )
         return
     except FloodWait as fw:
         await asyncio.sleep(fw.value + 1)
     except Exception as e:
         LOGGER.error(f"Failed to fetch pending requests for {chat_id}: {e}")
-        await status.edit_text(f"❌ Error fetching pending requests: {e}")
+        await status.edit_text(f"{style.h('Error fetching pending requests')} {e}")
         return
 
     await status.edit_text(
-        f"✅ Queued **{queued}** pending request(s) for approval.\n"
-        f"🚫 Declined **{declined}** (failed anti-spam checks)."
+        f"{style.h('Backlog processed')}\n"
+        f"{style.kv('Queued', f'<b>{queued}</b> pending request(s)')}\n"
+        f"{style.kv('Declined', f'<b>{declined}</b> (failed anti-spam checks)')}"
     )

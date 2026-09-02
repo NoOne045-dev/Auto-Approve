@@ -7,7 +7,7 @@ from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery
 import config
 from database import db
-from helpers import kb, fmt
+from helpers import kb, fmt, style, ui
 
 
 # ─── Single Chat Settings View ──────────────────────────────────────────────
@@ -25,14 +25,14 @@ async def cb_chat(client: Client, q: CallbackQuery):
     rejected = stats.get("rejected", 0)
 
     text = (
-        f"⚙️ <b>Settings — {fmt.escape(title)}</b>\n"
-        f"🆔 <code>{chat_id}</code>\n\n"
-        f"📊 <b>Quick Stats:</b>\n"
-        f"• ✅ Approved: <b>{approved:,}</b>\n"
-        f"• 🚫 Rejected: <b>{rejected:,}</b>\n\n"
-        f"<i>Toggle options below to customize behavior:</i>"
+        f"{style.h('Settings')} — <b>{fmt.escape(title)}</b>\n"
+        f"<code>{chat_id}</code>\n\n"
+        f"{style.h('Quick Stats')}\n"
+        f"• {style.kv('Approved', f'<b>{approved:,}</b>')}\n"
+        f"• {style.kv('Rejected', f'<b>{rejected:,}</b>')}\n\n"
+        f"<i>Toggle options below to customize behavior.</i>"
     )
-    await q.message.edit_text(text, reply_markup=kb.chat_settings(chat_id, cfg))
+    await ui.edit(q.message, text, reply_markup=kb.chat_settings(chat_id, cfg))
     await q.answer()
 
 
@@ -68,7 +68,7 @@ async def cb_toggle(client: Client, q: CallbackQuery):
         filters_d[target_key] = new_val
         await db.update_chat_key(chat_id, "filters", filters_d)
 
-    status_str = "🟢 ON" if new_val else "🔴 OFF"
+    status_str = "ON" if new_val else "OFF"
     await q.answer(f"{labels[key]}: {status_str}")
     await q.message.edit_reply_markup(reply_markup=kb.chat_settings(chat_id, cfg))
 
@@ -77,10 +77,11 @@ async def cb_toggle(client: Client, q: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^set_delay:(-?\d+)$"))
 async def cb_set_delay(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
-    await q.message.edit_text(
-        "⏳ <b>Select Auto-Approval Delay</b>\n\n"
-        "Configure how long the bot waits before approving a join request:\n"
-        "<i>(A small delay mimics human admin behavior and bypasses bot-detection algorithms)</i>",
+    await ui.edit(
+        q.message,
+        f"{style.h('Select Auto-Approval Delay')}\n\n"
+        "Configure how long the bot waits before approving a join request.\n"
+        "<i>A short delay mimics human admin timing and reduces bot-detection noise.</i>",
         reply_markup=kb.delay_picker(chat_id),
     )
     await q.answer()
@@ -96,8 +97,9 @@ async def cb_apply_delay(client: Client, q: CallbackQuery):
     
     await q.answer(f"Delay set to {delay} seconds!", show_alert=True)
     title = cfg.get("title", f"Chat {chat_id}")
-    await q.message.edit_text(
-        f"⚙️ <b>Settings — {fmt.escape(title)}</b>\n🆔 <code>{chat_id}</code>",
+    await ui.edit(
+        q.message,
+        f"{style.h('Settings')} — <b>{fmt.escape(title)}</b>\n<code>{chat_id}</code>",
         reply_markup=kb.chat_settings(chat_id, cfg),
     )
 
@@ -111,7 +113,8 @@ async def cb_del_chat(client: Client, q: CallbackQuery):
 
     uid = q.from_user.id
     chats = await db.all_chats(owner_id=uid if not config.is_admin(uid) else None)
-    await q.message.edit_text(
-        f"📢 <b>Managed Chats ({len(chats)} Total)</b>",
+    await ui.edit(
+        q.message,
+        f"{style.h(f'Managed Chats ({len(chats)} Total)')}",
         reply_markup=kb.chat_list(chats, page=1),
     )

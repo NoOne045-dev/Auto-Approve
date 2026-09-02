@@ -110,6 +110,80 @@ class fmt:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  PREMIUM TYPOGRAPHY (small caps + bold — Telegram is already sans-serif)
+# ═══════════════════════════════════════════════════════════════════════════════
+_SC_FROM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_SC_TO = "ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢ"
+_SC_TABLE = str.maketrans(_SC_FROM, _SC_TO)
+
+
+class style:
+    """Small-caps + HTML bold for headings and labels. Buttons use small caps only."""
+
+    @staticmethod
+    def sc(text: str) -> str:
+        return (text or "").translate(_SC_TABLE)
+
+    @staticmethod
+    def h(text: str) -> str:
+        return f"<b>{style.sc(text)}</b>"
+
+    @staticmethod
+    def l(text: str) -> str:
+        return f"<b>{style.sc(text)}</b>"
+
+    @staticmethod
+    def btn(text: str) -> str:
+        return style.sc(text)
+
+    @staticmethod
+    def kv(label: str, value) -> str:
+        return f"{style.l(label)} {value}"
+
+    @staticmethod
+    def on(enabled: bool) -> str:
+        return style.sc("ON") if enabled else style.sc("OFF")
+
+
+class ui:
+    """Send / edit bot screens, including photo captions from /start."""
+
+    @staticmethod
+    async def reply(message, text: str, reply_markup=None, photo: Optional[str] = None):
+        if photo:
+            try:
+                return await message.reply_photo(photo, caption=text, reply_markup=reply_markup)
+            except Exception as e:
+                LOGGER.warning(f"Failed to send photo ({photo}): {e}")
+        return await message.reply_text(text, reply_markup=reply_markup)
+
+    @staticmethod
+    async def edit(message, text: str, reply_markup=None):
+        has_media = bool(
+            getattr(message, "photo", None)
+            or getattr(message, "video", None)
+            or getattr(message, "animation", None)
+            or getattr(message, "document", None)
+        )
+        try:
+            if has_media:
+                if len(text) > 1024:
+                    await message.delete()
+                    return await message.reply_text(text, reply_markup=reply_markup)
+                return await message.edit_caption(caption=text, reply_markup=reply_markup)
+            return await message.edit_text(text, reply_markup=reply_markup)
+        except Exception:
+            try:
+                return await message.edit_text(text, reply_markup=reply_markup)
+            except Exception:
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                return await message.reply_text(text, reply_markup=reply_markup)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  INLINE KEYBOARDS
 # ═══════════════════════════════════════════════════════════════════════════════
 class kb:
@@ -119,29 +193,29 @@ class kb:
     def main(bot_username: str, is_admin_user: bool = False) -> Markup:
         rows = [
             [
-                Btn("➕ Add to Channel", url=f"https://t.me/{bot_username}?startchannel=botstart&admin=invite_users+manage_chat"),
-                Btn("➕ Add to Group", url=f"https://t.me/{bot_username}?startgroup=botstart&admin=invite_users+manage_chat"),
+                Btn(style.btn("Add to Channel"), url=f"https://t.me/{bot_username}?startchannel=botstart&admin=invite_users+manage_chat"),
+                Btn(style.btn("Add to Group"), url=f"https://t.me/{bot_username}?startgroup=botstart&admin=invite_users+manage_chat"),
             ],
             [
-                Btn("📢 My Channels & Groups", callback_data="chats:1"),
-                Btn("📊 Statistics", callback_data="global_stats"),
+                Btn(style.btn("My Channels & Groups"), callback_data="chats:1"),
+                Btn(style.btn("Statistics"), callback_data="global_stats"),
             ],
             [
-                Btn("❓ Help & Setup", callback_data="help"),
-                Btn("⚙️ Manage Settings", callback_data="chats:1"),
+                Btn(style.btn("Help & Setup"), callback_data="help"),
+                Btn(style.btn("Manage Settings"), callback_data="chats:1"),
             ],
         ]
         if is_admin_user:
-            rows.append([Btn("📡 Broadcast Suite", callback_data="broadcast_menu")])
+            rows.append([Btn(style.btn("Broadcast Suite"), callback_data="broadcast_menu")])
         return Markup(rows)
 
     @staticmethod
     def back(target: str = "main") -> Markup:
-        return Markup([[Btn("🔙 Back", callback_data=target)]])
+        return Markup([[Btn(style.btn("Back"), callback_data=target)]])
 
     @staticmethod
     def cancel(target: str = "main") -> Markup:
-        return Markup([[Btn("❌ Cancel", callback_data=target)]])
+        return Markup([[Btn(style.btn("Cancel"), callback_data=target)]])
 
     @staticmethod
     def chat_list(chats: list, page: int = 1, page_size: int = 5) -> Markup:
@@ -152,68 +226,68 @@ class kb:
 
         rows = []
         for c in slice_:
-            icon = "🟢" if c.get("auto_approve", True) else "🔴"
+            state = style.on(c.get("auto_approve", True))
             title = c.get("title", f"Chat {c.get('chat_id')}")
-            rows.append([Btn(f"{icon} {title}", callback_data=f"chat:{c['chat_id']}")])
+            rows.append([Btn(f"{title}  ·  {state}", callback_data=f"chat:{c['chat_id']}")])
 
         nav = []
         if page > 1:
-            nav.append(Btn("◀️ Previous", callback_data=f"chats:{page - 1}"))
-        nav.append(Btn(f"📄 {page}/{total_pages}", callback_data="noop"))
+            nav.append(Btn(style.btn("Previous"), callback_data=f"chats:{page - 1}"))
+        nav.append(Btn(f"{page}/{total_pages}", callback_data="noop"))
         if page < total_pages:
-            nav.append(Btn("Next ▶️", callback_data=f"chats:{page + 1}"))
+            nav.append(Btn(style.btn("Next"), callback_data=f"chats:{page + 1}"))
 
         if nav:
             rows.append(nav)
 
         rows.append([
-            Btn("🔄 Refresh", callback_data=f"chats:{page}"),
-            Btn("🔙 Main Menu", callback_data="main"),
+            Btn(style.btn("Refresh"), callback_data=f"chats:{page}"),
+            Btn(style.btn("Main Menu"), callback_data="main"),
         ])
         return Markup(rows)
 
     @staticmethod
     def chat_settings(chat_id: int, cfg: dict) -> Markup:
-        aa = "🟢 ON" if cfg.get("auto_approve", True) else "🔴 OFF"
-        cap = "🟢 ON" if cfg.get("captcha", False) else "🔴 OFF"
-        wel = "🟢 ON" if cfg.get("welcome", {}).get("enabled", True) else "🔴 OFF"
-        pfp = "🟢 ON" if cfg.get("filters", {}).get("require_pfp", False) else "🔴 OFF"
-        cas = "🟢 ON" if cfg.get("filters", {}).get("cas_check", True) else "🔴 OFF"
+        aa = style.on(cfg.get("auto_approve", True))
+        cap = style.on(cfg.get("captcha", False))
+        wel = style.on(cfg.get("welcome", {}).get("enabled", True))
+        pfp = style.on(cfg.get("filters", {}).get("require_pfp", False))
+        cas = style.on(cfg.get("filters", {}).get("cas_check", True))
         delay = cfg.get("delay", 0)
 
         return Markup([
-            [Btn(f"⚡ Auto-Approve: {aa}", callback_data=f"toggle:aa:{chat_id}")],
+            [Btn(f"{style.btn('Auto-Approve')}  ·  {aa}", callback_data=f"toggle:aa:{chat_id}")],
             [
-                Btn(f"🛡 Captcha: {cap}", callback_data=f"toggle:cap:{chat_id}"),
-                Btn(f"⏳ Delay: {delay}s", callback_data=f"set_delay:{chat_id}"),
+                Btn(f"{style.btn('Captcha')}  ·  {cap}", callback_data=f"toggle:cap:{chat_id}"),
+                Btn(f"{style.btn('Delay')}  ·  {delay}s", callback_data=f"set_delay:{chat_id}"),
             ],
             [
-                Btn(f"👋 Welcome: {wel}", callback_data=f"welcome:{chat_id}"),
-                Btn("🎨 Buttons", callback_data=f"wel_btns:{chat_id}"),
+                Btn(f"{style.btn('Welcome')}  ·  {wel}", callback_data=f"welcome:{chat_id}"),
+                Btn(style.btn("Buttons"), callback_data=f"wel_btns:{chat_id}"),
             ],
             [
-                Btn(f"🖼 Require Avatar: {pfp}", callback_data=f"toggle:pfp:{chat_id}"),
-                Btn(f"🚫 Anti-Spam (CAS): {cas}", callback_data=f"toggle:cas:{chat_id}"),
+                Btn(f"{style.btn('Require Avatar')}  ·  {pfp}", callback_data=f"toggle:pfp:{chat_id}"),
+                Btn(f"{style.btn('Anti-Spam CAS')}  ·  {cas}", callback_data=f"toggle:cas:{chat_id}"),
             ],
             [
-                Btn("⚡ Backlog Actions", callback_data=f"mass:{chat_id}"),
-                Btn("📊 Analytics", callback_data=f"chat_stats:{chat_id}"),
+                Btn(style.btn("Backlog Actions"), callback_data=f"mass:{chat_id}"),
+                Btn(style.btn("Analytics"), callback_data=f"chat_stats:{chat_id}"),
             ],
             [
-                Btn("🗑 Remove Chat", callback_data=f"del_chat:{chat_id}"),
-                Btn("🔙 Channels List", callback_data="chats:1"),
+                Btn(style.btn("Remove Chat"), callback_data=f"del_chat:{chat_id}"),
+                Btn(style.btn("Channels List"), callback_data="chats:1"),
             ],
         ])
 
     @staticmethod
     def delay_picker(chat_id: int) -> Markup:
         opts = [
-            ("⚡ Instant (0s)", 0),
-            ("⏱ 5 Seconds", 5),
-            ("⏱ 15 Seconds", 15),
-            ("⏱ 30 Seconds", 30),
-            ("⏱ 1 Minute", 60),
-            ("⏱ 5 Minutes", 300),
+            (style.btn("Instant (0s)"), 0),
+            (style.btn("5 Seconds"), 5),
+            (style.btn("15 Seconds"), 15),
+            (style.btn("30 Seconds"), 30),
+            (style.btn("1 Minute"), 60),
+            (style.btn("5 Minutes"), 300),
         ]
         rows = []
         row = []
@@ -224,31 +298,31 @@ class kb:
                 row = []
         if row:
             rows.append(row)
-        rows.append([Btn("🔙 Back", callback_data=f"chat:{chat_id}")])
+        rows.append([Btn(style.btn("Back"), callback_data=f"chat:{chat_id}")])
         return Markup(rows)
 
     @staticmethod
     def mass_actions(chat_id: int) -> Markup:
         return Markup([
-            [Btn("✅ Approve All Pending Requests", callback_data=f"mass_approve:{chat_id}")],
-            [Btn("❌ Decline All Pending Requests", callback_data=f"mass_decline:{chat_id}")],
-            [Btn("📥 Export Pending Requests (CSV)", callback_data=f"mass_export:{chat_id}")],
-            [Btn("🔙 Back to Settings", callback_data=f"chat:{chat_id}")],
+            [Btn(style.btn("Approve All Pending"), callback_data=f"mass_approve:{chat_id}")],
+            [Btn(style.btn("Decline All Pending"), callback_data=f"mass_decline:{chat_id}")],
+            [Btn(style.btn("Export Pending CSV"), callback_data=f"mass_export:{chat_id}")],
+            [Btn(style.btn("Back to Settings"), callback_data=f"chat:{chat_id}")],
         ])
 
     @staticmethod
     def welcome_editor(chat_id: int, wcfg: dict) -> Markup:
-        en = "🟢 Enabled" if wcfg.get("enabled", True) else "🔴 Disabled"
-        pm = "📬 DM (PM)" if wcfg.get("send_pm", True) else "📢 In Chat"
+        en = style.on(wcfg.get("enabled", True))
+        pm = style.btn("Direct Message") if wcfg.get("send_pm", True) else style.btn("In Chat")
         has_media = bool(wcfg.get("media_id"))
 
         return Markup([
-            [Btn(f"Status: {en}", callback_data=f"toggle:wel:{chat_id}")],
-            [Btn(f"Target: {pm}", callback_data=f"toggle:wel_pm:{chat_id}")],
-            [Btn("✏️ Edit Welcome Text / Tags", callback_data=f"set_wel_text:{chat_id}")],
-            [Btn("🖼 Change / Remove Media" if has_media else "➕ Attach Media (Photo/Video)", callback_data=f"set_wel_media:{chat_id}")],
-            [Btn("👁 Preview Message", callback_data=f"preview_wel:{chat_id}")],
-            [Btn("🔙 Back to Settings", callback_data=f"chat:{chat_id}")],
+            [Btn(f"{style.btn('Status')}  ·  {en}", callback_data=f"toggle:wel:{chat_id}")],
+            [Btn(f"{style.btn('Target')}  ·  {pm}", callback_data=f"toggle:wel_pm:{chat_id}")],
+            [Btn(style.btn("Edit Welcome Text"), callback_data=f"set_wel_text:{chat_id}")],
+            [Btn(style.btn("Change Media") if has_media else style.btn("Attach Media"), callback_data=f"set_wel_media:{chat_id}")],
+            [Btn(style.btn("Preview Message"), callback_data=f"preview_wel:{chat_id}")],
+            [Btn(style.btn("Back to Settings"), callback_data=f"chat:{chat_id}")],
         ])
 
 
@@ -275,9 +349,9 @@ def make_captcha(kind: str, chat_id: int) -> Tuple[str, Markup, str]:
         random.shuffle(shuffled)
 
         text = (
-            "🛡️ <b>Security Verification</b>\n\n"
-            f"Please solve this math equation to join the chat:\n"
-            f"👉 <b>{a} + {b} = ?</b>"
+            f"{style.h('Security Verification')}\n\n"
+            f"Solve this equation to complete your join request:\n"
+            f"{style.l(f'{a} + {b} = ?')}"
         )
         btns = []
         row = []
@@ -295,9 +369,9 @@ def make_captcha(kind: str, chat_id: int) -> Tuple[str, Markup, str]:
         sample = random.sample(_EMOJIS, 4)
         target = random.choice(sample)
         text = (
-            "🛡️ <b>Security Verification</b>\n\n"
-            f"Please tap the matching emoji to join:\n"
-            f"🎯 Target: <b>{target}</b>"
+            f"{style.h('Security Verification')}\n\n"
+            f"Tap the matching symbol to complete your join request:\n"
+            f"{style.kv('Target:', target)}"
         )
         btns = [[]]
         for e in sample:
@@ -307,10 +381,10 @@ def make_captcha(kind: str, chat_id: int) -> Tuple[str, Markup, str]:
 
     # Default: 1-Click Human Verification
     text = (
-        "🛡️ <b>Security Verification</b>\n\n"
-        "Please tap the button below to confirm you are human and complete your join request."
+        f"{style.h('Security Verification')}\n\n"
+        "Tap the button below to confirm you are human and complete your join request."
     )
-    return text, Markup([[Btn("🟢 I am Human — Verify", callback_data=f"captcha:{chat_id}:button:1")]]), "verified"
+    return text, Markup([[Btn(style.btn("I am Human — Verify"), callback_data=f"captcha:{chat_id}:button:1")]]), "verified"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

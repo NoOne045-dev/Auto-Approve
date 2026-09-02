@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait
 import config
 from config import LOGGER
 from database import db
-from helpers import kb, limiter
+from helpers import kb, limiter, style, ui
 
 _active_mass_ops = set()
 
@@ -22,13 +22,13 @@ async def cb_mass_menu(client: Client, q: CallbackQuery):
     title = cfg.get("title", f"Chat {chat_id}") if cfg else f"Chat {chat_id}"
 
     text = (
-        f"⚡ <b>Mass Backlog Actions — {title}</b>\n\n"
+        f"{style.h('Mass Backlog Actions')} — <b>{title}</b>\n\n"
         "Perform bulk actions on all existing pending join requests:\n"
-        "• <b>Approve All:</b> Approve all pending joiners with progress bar.\n"
-        "• <b>Decline All:</b> Purge spam backlogs safely.\n"
-        "• <b>Export CSV:</b> Download pending requests report."
+        f"• {style.l('Approve All')} — Approve all pending joiners with a progress bar.\n"
+        f"• {style.l('Decline All')} — Purge spam backlogs safely.\n"
+        f"• {style.l('Export CSV')} — Download a pending requests report."
     )
-    await q.message.edit_text(text, reply_markup=kb.mass_actions(chat_id))
+    await ui.edit(q.message, text, reply_markup=kb.mass_actions(chat_id))
     await q.answer()
 
 
@@ -37,8 +37,9 @@ async def cb_mass_approve(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
     _active_mass_ops.add(chat_id)
 
-    status_msg = await q.message.edit_text(
-        "⏳ <b>Fetching pending join requests...</b>",
+    status_msg = await ui.edit(
+        q.message,
+        f"{style.h('Fetching pending join requests')}...",
         reply_markup=kb.cancel(f"cancel_mass:{chat_id}"),
     )
 
@@ -66,9 +67,9 @@ async def cb_mass_approve(client: Client, q: CallbackQuery):
             if processed % 10 == 0:
                 try:
                     await status_msg.edit_text(
-                        f"⚡ <b>Mass Approval in Progress...</b>\n\n"
-                        f"✅ Approved: <b>{approved:,}</b>\n"
-                        f"⏳ Processed: <b>{processed:,}</b>",
+                        f"{style.h('Mass Approval in Progress')}\n\n"
+                        f"{style.kv('Approved', f'<b>{approved:,}</b>')}\n"
+                        f"{style.kv('Processed', f'<b>{processed:,}</b>')}",
                         reply_markup=kb.cancel(f"cancel_mass:{chat_id}"),
                     )
                 except Exception:
@@ -76,13 +77,13 @@ async def cb_mass_approve(client: Client, q: CallbackQuery):
 
         _active_mass_ops.discard(chat_id)
         await status_msg.edit_text(
-            f"🎉 <b>Mass Approval Complete!</b>\n\n"
-            f"✅ Successfully approved <b>{approved:,}</b> pending requests."
+            f"{style.h('Mass Approval Complete')}\n\n"
+            f"Successfully approved <b>{approved:,}</b> pending requests."
         )
     except Exception as e:
         _active_mass_ops.discard(chat_id)
         LOGGER.error(f"Mass approve error in {chat_id}: {e}")
-        await status_msg.edit_text(f"⚠️ Mass approval stopped: <code>{e}</code>")
+        await status_msg.edit_text(f"{style.h('Mass approval stopped')} <code>{e}</code>")
 
 
 @Client.on_callback_query(filters.regex(r"^mass_decline:(-?\d+)$"))
@@ -90,8 +91,9 @@ async def cb_mass_decline(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
     _active_mass_ops.add(chat_id)
 
-    status_msg = await q.message.edit_text(
-        "⏳ <b>Declining all pending requests...</b>",
+    status_msg = await ui.edit(
+        q.message,
+        f"{style.h('Declining all pending requests')}...",
         reply_markup=kb.cancel(f"cancel_mass:{chat_id}"),
     )
 
@@ -116,8 +118,8 @@ async def cb_mass_decline(client: Client, q: CallbackQuery):
             if declined % 10 == 0:
                 try:
                     await status_msg.edit_text(
-                        f"❌ <b>Mass Decline in Progress...</b>\n\n"
-                        f"🚫 Declined: <b>{declined:,}</b> requests",
+                        f"{style.h('Mass Decline in Progress')}\n\n"
+                        f"{style.kv('Declined', f'<b>{declined:,}</b> requests')}",
                         reply_markup=kb.cancel(f"cancel_mass:{chat_id}"),
                     )
                 except Exception:
@@ -125,12 +127,12 @@ async def cb_mass_decline(client: Client, q: CallbackQuery):
 
         _active_mass_ops.discard(chat_id)
         await status_msg.edit_text(
-            f"✅ <b>Mass Decline Complete!</b>\n\n"
-            f"🚫 Declined <b>{declined:,}</b> pending spam requests."
+            f"{style.h('Mass Decline Complete')}\n\n"
+            f"Declined <b>{declined:,}</b> pending requests."
         )
     except Exception as e:
         _active_mass_ops.discard(chat_id)
-        await status_msg.edit_text(f"⚠️ Mass decline stopped: <code>{e}</code>")
+        await status_msg.edit_text(f"{style.h('Mass decline stopped')} <code>{e}</code>")
 
 
 @Client.on_callback_query(filters.regex(r"^mass_export:(-?\d+)$"))
@@ -138,7 +140,7 @@ async def cb_mass_export(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
     await q.answer("Generating CSV export...", show_alert=False)
 
-    msg = await q.message.reply_text("📥 <i>Exporting pending members list...</i>")
+    msg = await q.message.reply_text(f"{style.h('Exporting pending members list')}...")
     csv_buffer = io.StringIO()
     csv_buffer.write("User ID,First Name,Last Name,Username,Date,Invite Link\n")
 
@@ -161,11 +163,11 @@ async def cb_mass_export(client: Client, q: CallbackQuery):
         await client.send_document(
             chat_id=q.from_user.id,
             document=csv_bytes,
-            caption=f"📄 <b>Exported {count:,} pending requests</b> for chat <code>{chat_id}</code>.",
+            caption=f"{style.h(f'Exported {count:,} pending requests')} for chat <code>{chat_id}</code>.",
         )
         await msg.delete()
     except Exception as e:
-        await msg.edit_text(f"⚠️ Export failed: <code>{e}</code>")
+        await msg.edit_text(f"{style.h('Export failed')} <code>{e}</code>")
 
 
 @Client.on_callback_query(filters.regex(r"^cancel_mass:(-?\d+)$"))

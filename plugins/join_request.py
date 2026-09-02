@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait, UserIsBlocked, PeerIdInvalid, ChatAdminRe
 import config
 from config import LOGGER
 from database import db
-from helpers import limiter, make_captcha, check_spam, fmt
+from helpers import limiter, make_captcha, check_spam, fmt, style
 
 # Approval Task Queue: (chat_id, user_id, user_obj, chat_obj, delay, invite_link)
 approval_queue: asyncio.Queue = asyncio.Queue()
@@ -35,7 +35,7 @@ def _default_chat_config(chat) -> dict:
         "welcome": {
             "enabled": True,
             "send_pm": True,
-            "text": "🎉 <b>Welcome {mention} to {chat_title}!</b>\n\nYour join request has been approved.",
+            "text": "<b>Welcome {mention}</b>\n\nYour join request to <b>{chat_title}</b> has been approved.",
             "media_id": None,
             "media_type": None,
         },
@@ -91,7 +91,7 @@ async def _send_welcome_message(client: Client, chat_id: int, user, chat, invite
 
     raw_template = wcfg.get(
         "text",
-        "🎉 <b>Welcome {mention} to {chat_title}!</b>\n\nYour join request has been approved."
+        "<b>Welcome {mention}</b>\n\nYour join request to <b>{chat_title}</b> has been approved.",
     )
     rendered = fmt.render(raw_template, user=user, chat=chat, invite_link=invite_link)
     text, markup = fmt.parse_buttons(rendered)
@@ -172,7 +172,7 @@ async def handle_chat_join_request(client: Client, req: ChatJoinRequest):
             msg = await client.send_message(
                 chat_id=user.id,
                 text=(
-                    f"👋 Hi <b>{fmt.escape(user.first_name)}</b>!\n"
+                    f"{style.h('Hi')}, <b>{fmt.escape(user.first_name or 'there')}</b>\n"
                     f"You requested to join <b>{fmt.escape(chat.title)}</b>.\n\n{c_text}"
                 ),
                 reply_markup=markup,

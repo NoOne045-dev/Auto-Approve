@@ -12,6 +12,7 @@ services:
       - OWNER_ID=${OWNER_ID}
       - MONGO_URL=mongodb://mongo:27017/AutoApproveBot
       - MAX_APPROVALS_PER_SECOND=25
+      - START_PIC=${START_PIC}
       - LOG_LEVEL=INFO
     depends_on:
       - mongo

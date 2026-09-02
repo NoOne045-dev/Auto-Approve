@@ -37,6 +37,10 @@ ENABLE_CAS_CHECK: bool = os.getenv("ENABLE_CAS_CHECK", "true").lower() in ("1", 
 # Render injects PORT automatically for web services; default kept for local runs.
 PORT: int = int(os.getenv("PORT", "8080") if os.getenv("PORT", "").strip().isdigit() else 8080)
 
+# ─── Branding ────────────────────────────────────────────────────────────────
+# Photo URL shown on /start (Telegram accepts http/https image URLs).
+START_PIC: str = (os.getenv("START_PIC") or os.getenv("Start_pic") or "").strip()
+
 # ─── Logging ────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(

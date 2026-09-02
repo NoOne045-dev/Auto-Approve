@@ -28,5 +28,7 @@ services:
         value: "true"
       - key: LOG_LEVEL
         value: INFO
+      - key: START_PIC
+        sync: false
       - key: PORT
         value: "8080"

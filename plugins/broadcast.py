@@ -9,7 +9,7 @@ from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineK
 from pyrogram.errors import FloodWait, UserIsBlocked, InputUserDeactivated
 import config
 from database import db
-from helpers import limiter
+from helpers import limiter, style
 
 _broadcast_running = False
 
@@ -21,10 +21,10 @@ async def cmd_broadcast(client: Client, msg: Message):
 
     if not msg.reply_to_message:
         await msg.reply_text(
-            "📢 <b>Broadcast Suite</b>\n\n"
+            f"{style.h('Broadcast Suite')}\n\n"
             "Reply to any message with:\n"
-            "• <code>/broadcast</code> — Copy message with buttons\n"
-            "• <code>/broadcast -f</code> — Forward original message"
+            f"• <code>/broadcast</code> — Copy message with buttons\n"
+            f"• <code>/broadcast -f</code> — Forward original message"
         )
         return
 
@@ -33,15 +33,15 @@ async def cmd_broadcast(client: Client, msg: Message):
 
     markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🚀 Start Broadcast", callback_data=f"bcast_go:{msg.reply_to_message.id}:{1 if is_fwd else 0}"),
-            InlineKeyboardButton("❌ Cancel", callback_data="bcast_cancel"),
+            InlineKeyboardButton(style.btn("Start Broadcast"), callback_data=f"bcast_go:{msg.reply_to_message.id}:{1 if is_fwd else 0}"),
+            InlineKeyboardButton(style.btn("Cancel"), callback_data="bcast_cancel"),
         ]
     ])
 
     await msg.reply_text(
-        f"📢 <b>Confirm Broadcast</b>\n\n"
-        f"👥 <b>Target Audience:</b> {total:,} users\n"
-        f"📋 <b>Mode:</b> {'Forward Mode' if is_fwd else 'Copy Mode'}\n\n"
+        f"{style.h('Confirm Broadcast')}\n\n"
+        f"{style.kv('Target Audience', f'{total:,} users')}\n"
+        f"{style.kv('Mode', 'Forward Mode' if is_fwd else 'Copy Mode')}\n\n"
         f"<i>Start broadcasting?</i>",
         reply_markup=markup,
     )
@@ -54,7 +54,7 @@ async def cb_broadcast_start(client: Client, q: CallbackQuery):
         return
 
     if _broadcast_running:
-        await q.answer("⚠️ Another broadcast is currently running!", show_alert=True)
+        await q.answer("Another broadcast is currently running.", show_alert=True)
         return
 
     target_id = int(q.matches[0].group(1))
@@ -65,11 +65,11 @@ async def cb_broadcast_start(client: Client, q: CallbackQuery):
     total = len(user_ids)
 
     if not total:
-        await q.message.edit_text("⚠️ No active users found in database.")
+        await q.message.edit_text(f"{style.h('No active users')} found in the database.")
         _broadcast_running = False
         return
 
-    status_msg = await q.message.edit_text(f"🚀 <b>Broadcast Starting...</b>\nTarget: {total:,} users")
+    status_msg = await q.message.edit_text(f"{style.h('Broadcast Starting')}\nTarget: {total:,} users")
 
     success = 0
     blocked = 0
@@ -110,15 +110,15 @@ async def cb_broadcast_start(client: Client, q: CallbackQuery):
 
             try:
                 await status_msg.edit_text(
-                    f"📢 <b>Broadcast in Progress...</b>\n"
+                    f"{style.h('Broadcast in Progress')}\n"
                     f"[{bar}] <b>{pct}%</b>\n\n"
-                    f"👥 <b>Total:</b> {total:,}\n"
-                    f"✅ <b>Delivered:</b> {success:,}\n"
-                    f"🚫 <b>Blocked:</b> {blocked:,}\n"
-                    f"🗑️ <b>Deleted:</b> {deleted:,}\n"
-                    f"⏱️ <b>ETA:</b> {eta}s",
+                    f"{style.kv('Total', f'{total:,}')}\n"
+                    f"{style.kv('Delivered', f'{success:,}')}\n"
+                    f"{style.kv('Blocked', f'{blocked:,}')}\n"
+                    f"{style.kv('Deleted', f'{deleted:,}')}\n"
+                    f"{style.kv('ETA', f'{eta}s')}",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🛑 Stop Broadcast", callback_data="bcast_cancel")]
+                        [InlineKeyboardButton(style.btn("Stop Broadcast"), callback_data="bcast_cancel")]
                     ]),
                 )
             except Exception:
@@ -127,12 +127,12 @@ async def cb_broadcast_start(client: Client, q: CallbackQuery):
     _broadcast_running = False
     duration = int(time.time() - start_time)
     await status_msg.edit_text(
-        f"🎉 <b>Broadcast Completed!</b>\n\n"
-        f"⏱️ <b>Duration:</b> {duration}s\n"
-        f"✅ <b>Delivered:</b> {success:,}\n"
-        f"🚫 <b>Blocked:</b> {blocked:,}\n"
-        f"🗑️ <b>Deleted:</b> {deleted:,}\n"
-        f"⚠️ <b>Failed:</b> {failed:,}"
+        f"{style.h('Broadcast Completed')}\n\n"
+        f"{style.kv('Duration', f'{duration}s')}\n"
+        f"{style.kv('Delivered', f'{success:,}')}\n"
+        f"{style.kv('Blocked', f'{blocked:,}')}\n"
+        f"{style.kv('Deleted', f'{deleted:,}')}\n"
+        f"{style.kv('Failed', f'{failed:,}')}"
     )
 
 
@@ -141,5 +141,5 @@ async def cb_broadcast_cancel(client: Client, q: CallbackQuery):
     global _broadcast_running
     _broadcast_running = False
     await q.answer("Broadcast stopped!", show_alert=True)
-    await q.message.edit_text("🛑 <b>Broadcast cancelled.</b>")
+    await q.message.edit_text(f"{style.h('Broadcast cancelled')}.")
 

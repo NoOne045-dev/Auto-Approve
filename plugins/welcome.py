@@ -5,7 +5,7 @@ plugins/welcome.py — Interactive welcome message, media, and button builder.
 from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, Message
 from database import db
-from helpers import kb, fmt
+from helpers import kb, fmt, style, ui
 
 # Temporary user conversation state: { user_id: {"action": str, "chat_id": int} }
 _user_states: dict = {}
@@ -21,21 +21,22 @@ async def cb_welcome_menu(client: Client, q: CallbackQuery):
 
     wcfg = cfg.get("welcome", {})
     title = cfg.get("title", str(chat_id))
-    cur_text = wcfg.get("text", "🎉 <b>Welcome {mention} to {chat_title}!</b>")
+    DEFAULT_WELCOME = "<b>Welcome {mention}</b>\n\nYou have been approved to join <b>{chat_title}</b>."
+    cur_text = wcfg.get("text", DEFAULT_WELCOME)
 
     text = (
-        f"👋 <b>Welcome Message Editor — {fmt.escape(title)}</b>\n\n"
-        f"<b>Current Template:</b>\n"
+        f"{style.h('Welcome Message Editor')} — <b>{fmt.escape(title)}</b>\n\n"
+        f"{style.l('Current Template')}\n"
         f"<code>{fmt.escape(cur_text)}</code>\n\n"
-        f"<b>Dynamic Variables Available:</b>\n"
+        f"{style.l('Dynamic Variables')}\n"
         f"• <code>{{mention}}</code> — Clickable user mention\n"
         f"• <code>{{first_name}}</code>, <code>{{last_name}}</code>, <code>{{full_name}}</code>\n"
         f"• <code>{{username}}</code>, <code>{{user_id}}</code>\n"
         f"• <code>{{chat_title}}</code>, <code>{{chat_id}}</code>\n"
         f"• <code>{{date}}</code>, <code>{{time}}</code>, <code>{{invite_link}}</code>\n\n"
-        f"<i>Select an option below:</i>"
+        f"<i>Select an option below.</i>"
     )
-    await q.message.edit_text(text, reply_markup=kb.welcome_editor(chat_id, wcfg))
+    await ui.edit(q.message, text, reply_markup=kb.welcome_editor(chat_id, wcfg))
     await q.answer()
 
 
@@ -48,7 +49,7 @@ async def cb_toggle_wel(client: Client, q: CallbackQuery):
         new_val = not wcfg.get("enabled", True)
         wcfg["enabled"] = new_val
         await db.update_chat_key(chat_id, "welcome", wcfg)
-        status = "🟢 ENABLED" if new_val else "🔴 DISABLED"
+        status = "ENABLED" if new_val else "DISABLED"
         await q.answer(f"Welcome Message: {status}")
         await q.message.edit_reply_markup(reply_markup=kb.welcome_editor(chat_id, wcfg))
 
@@ -72,8 +73,9 @@ async def cb_set_wel_text(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
     _user_states[q.from_user.id] = {"action": "text", "chat_id": chat_id}
 
-    await q.message.edit_text(
-        "✏️ <b>Send your new welcome message text now:</b>\n\n"
+    await ui.edit(
+        q.message,
+        f"{style.h('Send your new welcome message text')}\n\n"
         "You can use HTML tags (<code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>, <code>&lt;a&gt;</code>) and variables:\n"
         "<code>{mention}</code>, <code>{first_name}</code>, <code>{chat_title}</code>, <code>{date}</code>\n\n"
         "To attach buttons at the bottom, format them as:\n"
@@ -88,9 +90,10 @@ async def cb_set_wel_media(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
     _user_states[q.from_user.id] = {"action": "media", "chat_id": chat_id}
 
-    await q.message.edit_text(
-        "🖼 <b>Attach Media to Welcome Message</b>\n\n"
-        "Send any <b>Photo, Video, GIF/Animation, or Document</b> now.\n\n"
+    await ui.edit(
+        q.message,
+        f"{style.h('Attach Media to Welcome Message')}\n\n"
+        f"Send any {style.l('Photo, Video, GIF/Animation, or Document')} now.\n\n"
         "<i>To remove existing media, type <code>remove</code>.</i>",
         reply_markup=kb.cancel(f"welcome:{chat_id}"),
     )
@@ -106,7 +109,7 @@ async def cb_preview_wel(client: Client, q: CallbackQuery):
         return
 
     wcfg = cfg.get("welcome", {})
-    raw_template = wcfg.get("text", "🎉 Welcome {mention} to <b>{chat_title}</b>!")
+    raw_template = wcfg.get("text", "<b>Welcome {mention}</b> to <b>{chat_title}</b>.")
     rendered = fmt.render(
         raw_template,
         user=q.from_user,
@@ -132,7 +135,7 @@ async def cb_preview_wel(client: Client, q: CallbackQuery):
         else:
             await client.send_message(q.from_user.id, text=clean_text, reply_markup=markup)
     except Exception as e:
-        await q.message.reply_text(f"⚠️ Preview error: <code>{e}</code>")
+        await q.message.reply_text(f"{style.h('Preview error')} <code>{e}</code>")
 
 
 # ─── Input Listener for Setting Text / Media ────────────────────────────────
@@ -156,7 +159,7 @@ async def welcome_input_handler(client: Client, msg: Message):
         wcfg["text"] = new_text
         await db.update_chat_key(chat_id, "welcome", wcfg)
         del _user_states[uid]
-        await msg.reply_text("✅ <b>Welcome message text updated!</b>", reply_markup=kb.welcome_editor(chat_id, wcfg))
+        await msg.reply_text(f"{style.h('Welcome message text updated')}", reply_markup=kb.welcome_editor(chat_id, wcfg))
 
     elif action == "media":
         if msg.text and msg.text.strip().lower() == "remove":
@@ -164,7 +167,7 @@ async def welcome_input_handler(client: Client, msg: Message):
             wcfg["media_type"] = None
             await db.update_chat_key(chat_id, "welcome", wcfg)
             del _user_states[uid]
-            await msg.reply_text("✅ <b>Media removed from welcome message!</b>", reply_markup=kb.welcome_editor(chat_id, wcfg))
+            await msg.reply_text(f"{style.h('Media removed from welcome message')}", reply_markup=kb.welcome_editor(chat_id, wcfg))
             return
 
         media_id = None
@@ -189,6 +192,6 @@ async def welcome_input_handler(client: Client, msg: Message):
                 wcfg["text"] = msg.caption
             await db.update_chat_key(chat_id, "welcome", wcfg)
             del _user_states[uid]
-            await msg.reply_text("✅ <b>Media successfully attached!</b>", reply_markup=kb.welcome_editor(chat_id, wcfg))
+            await msg.reply_text(f"{style.h('Media successfully attached')}", reply_markup=kb.welcome_editor(chat_id, wcfg))
         else:
-            await msg.reply_text("⚠️ Please send a valid Photo, Video, GIF, or Document (or send <code>remove</code>).")
+            await msg.reply_text(f"{style.h('Send a valid Photo, Video, GIF, or Document')} (or send <code>remove</code>).")

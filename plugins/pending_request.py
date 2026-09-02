@@ -15,8 +15,33 @@ from config import LOGGER
 from database import db
 from core.permissions import can_manage_chat
 from core.queue_manager import queue_manager, ApprovalJob
+from helpers import style
 
 UTC = datetime.timezone.utc
+
+
+def _queue_status_text(title: str, status: dict) -> str:
+    pos = status["position"]
+    pos_str = f"{style.sc('Active')} (#1)" if pos == 1 else f"{style.sc('Queued')} (#{pos})"
+    started_str = status["started_at"].strftime("%H:%M:%S UTC") if status.get("started_at") else "Pending"
+    limit_str = f"{status['limit']:,}" if status.get("limit") else style.sc("Unlimited")
+    bar = _format_progress_bar(status["approved"], status.get("limit"))
+    job_id = status["job_id"]
+    waiting = status["waiting"]
+    eta = status["eta_seconds"]
+    approved = status["approved"]
+    processed = status["processed"]
+    return (
+        f"{style.h('Queue Status')} — <b>{title}</b>\n\n"
+        f"• {style.kv('Job ID', f'<code>{job_id}</code>')}\n"
+        f"• {style.kv('Position', f'<b>{pos_str}</b>')}\n"
+        f"• {style.kv('Jobs Ahead', f'<b>{waiting}</b>')}\n"
+        f"• {style.kv('Started At', f'<code>{started_str}</code>')}\n"
+        f"• {style.kv('ETA', f'<code>{eta}s</code>')}\n\n"
+        f"[{bar}]\n"
+        f"• {style.kv('Approved', f'<b>{approved:,}</b> / {limit_str}')}\n"
+        f"• {style.kv('Processed', f'<b>{processed:,}</b>')}"
+    )
 
 
 def _format_progress_bar(current: int, total: Optional[int], length: int = 10) -> str:
@@ -50,9 +75,9 @@ async def cmd_approveall(client: Client, msg: Message):
         # Private chat
         if not args:
             await msg.reply_text(
-                "⚡ <b>Mass Approval (/approveall)</b>\n\n"
+                f"{style.h('Mass Approval')}  <code>/approveall</code>\n\n"
                 "Approve pending join requests across your channels.\n\n"
-                "👉 <b>Usage:</b>\n"
+                f"{style.l('Usage')}\n"
                 "• <code>/approveall &lt;chat_id&gt; [limit]</code>\n"
                 "• <code>/approveall -1001234567890 50</code> (approve 50)\n"
                 "• <code>/approveall -1001234567890 unlimited</code> (approve all)\n\n"
@@ -73,18 +98,18 @@ async def cmd_approveall(client: Client, msg: Message):
             if len(args) > 1 and args[1].isdigit():
                 limit = int(args[1])
         else:
-            await msg.reply_text("⚠️ <b>Invalid chat ID.</b> Please provide a numeric Telegram chat/channel ID.")
+            await msg.reply_text(f"{style.h('Invalid chat ID')}. Provide a numeric Telegram chat/channel ID.")
             return
 
     # Check caller permissions
     has_perm = await can_manage_chat(user.id, target_chat_id, client)
     if not has_perm:
-        await msg.reply_text("❌ <b>Access Denied:</b> You must be an Administrator of this chat to run /approveall.")
+        await msg.reply_text(f"{style.h('Access Denied')}: You must be an administrator of this chat to run /approveall.")
         return
 
     if queue_manager.is_running(target_chat_id):
         await msg.reply_text(
-            f"⚠️ An approval job is already running for chat <code>{target_chat_id}</code>.\n"
+            f"{style.h('Job already running')} for chat <code>{target_chat_id}</code>.\n"
             f"Use /queue <code>{target_chat_id}</code> to inspect progress."
         )
         return
@@ -92,14 +117,14 @@ async def cmd_approveall(client: Client, msg: Message):
     cfg = await db.get_chat(target_chat_id)
     chat_title = cfg.get("title", f"Chat {target_chat_id}") if cfg else f"Chat {target_chat_id}"
 
-    limit_label = f"<b>{limit:,}</b>" if limit is not None else "<b>Unlimited ♾️</b>"
+    limit_label = f"<b>{limit:,}</b>" if limit is not None else f"<b>{style.sc('Unlimited')}</b>"
     status_msg = await msg.reply_text(
-        f"⚡ <b>Initiating Approval Queue...</b>\n\n"
-        f"📢 <b>Target:</b> {chat_title} (<code>{target_chat_id}</code>)\n"
-        f"🎯 <b>Limit:</b> {limit_label}\n"
-        f"⏳ <i>Connecting to backlog...</i>",
+        f"{style.h('Initiating Approval Queue')}\n\n"
+        f"{style.kv('Target', f'{chat_title} (<code>{target_chat_id}</code>)')}\n"
+        f"{style.kv('Limit', limit_label)}\n"
+        f"<i>Connecting to backlog...</i>",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛑 Cancel Queue", callback_data=f"cancel_queue:{target_chat_id}")]
+            [InlineKeyboardButton(style.btn("Cancel Queue"), callback_data=f"cancel_queue:{target_chat_id}")]
         ]),
     )
 
@@ -116,38 +141,39 @@ async def cmd_approveall(client: Client, msg: Message):
 
         if job.status == "running":
             text = (
-                f"⚡ <b>Approval Queue in Progress...</b>\n\n"
-                f"📢 <b>Target:</b> {chat_title}\n"
-                f"[{bar}] <b>{job.approved:,}</b> / {f'{job.limit:,}' if job.limit else '♾️'}\n\n"
-                f"✅ <b>Approved:</b> <code>{job.approved:,}</code>\n"
-                f"⏳ <b>Processed:</b> <code>{job.processed:,}</code>\n"
-                f"⏱️ <b>ETA:</b> <code>{eta_str}</code>"
+                f"{style.h('Approval Queue in Progress')}\n\n"
+                f"{style.kv('Target', chat_title)}\n"
+                f"[{bar}] <b>{job.approved:,}</b> / {f'{job.limit:,}' if job.limit else style.sc('Unlimited')}\n\n"
+                f"{style.kv('Approved', f'<code>{job.approved:,}</code>')}\n"
+                f"{style.kv('Processed', f'<code>{job.processed:,}</code>')}\n"
+                f"{style.kv('ETA', f'<code>{eta_str}</code>')}"
             )
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🛑 Cancel Queue", callback_data=f"cancel_queue:{job.chat_id}")]
+                [InlineKeyboardButton(style.btn("Cancel Queue"), callback_data=f"cancel_queue:{job.chat_id}")]
             ])
         elif job.status == "completed":
             text = (
-                f"🎉 <b>Approval Queue Complete!</b>\n\n"
-                f"📢 <b>Target:</b> {chat_title}\n"
-                f"✅ <b>Successfully Approved:</b> <b>{job.approved:,}</b> requests\n"
-                f"⏳ <b>Total Processed:</b> <b>{job.processed:,}</b>\n"
-                f"⏱️ <b>Duration:</b> {int((datetime.datetime.now(UTC) - (job.started_at or job.created_at)).total_seconds())}s"
+                f"{style.h('Approval Queue Complete')}\n\n"
+                f"{style.kv('Target', chat_title)}\n"
+                f"{style.kv('Successfully Approved', f'<b>{job.approved:,}</b> requests')}\n"
+                f"{style.kv('Total Processed', f'<b>{job.processed:,}</b>')}\n"
+                f"{style.kv('Duration', str(int((datetime.datetime.now(UTC) - (job.started_at or job.created_at)).total_seconds())) + 's')}"
             )
             markup = None
         elif job.status == "cancelled":
             text = (
-                f"🛑 <b>Approval Queue Cancelled</b>\n\n"
-                f"📢 <b>Target:</b> {chat_title}\n"
-                f"✅ <b>Approved before stop:</b> <b>{job.approved:,}</b>\n"
-                f"⏳ <b>Processed:</b> <b>{job.processed:,}</b>"
+                f"{style.h('Approval Queue Cancelled')}\n\n"
+                f"{style.kv('Target', chat_title)}\n"
+                f"{style.kv('Approved before stop', f'<b>{job.approved:,}</b>')}\n"
+                f"{style.kv('Processed', f'<b>{job.processed:,}</b>')}"
             )
             markup = None
         else:
+            err = job.error or "N/A"
             text = (
-                f"⚠️ <b>Approval Queue Finished ({job.status})</b>\n\n"
-                f"✅ <b>Approved:</b> <b>{job.approved:,}</b>\n"
-                f"⚠️ <b>Error detail:</b> <code>{job.error or 'N/A'}</code>"
+                f"{style.h(f'Approval Queue Finished ({job.status})')}\n\n"
+                f"{style.kv('Approved', f'<b>{job.approved:,}</b>')}\n"
+                f"{style.kv('Error detail', f'<code>{err}</code>')}"
             )
             markup = None
 
@@ -182,7 +208,7 @@ async def cmd_queue(client: Client, msg: Message):
         status = queue_manager.get_status(target_chat_id)
         if not status:
             await msg.reply_text(
-                f"ℹ️ <b>No active approval queue</b> for chat <code>{target_chat_id}</code>.\n\n"
+                f"{style.h('No active approval queue')} for chat <code>{target_chat_id}</code>.\n\n"
                 f"Start an approval job with <code>/approveall {target_chat_id}</code>."
             )
             return
@@ -191,25 +217,25 @@ async def cmd_queue(client: Client, msg: Message):
         title = cfg.get("title", f"Chat {target_chat_id}") if cfg else f"Chat {target_chat_id}"
 
         pos = status["position"]
-        pos_str = "🟢 Active (#1)" if pos == 1 else f"⏳ Queued (#{pos})"
+        pos_str = f"{style.sc('Active')} (#1)" if pos == 1 else f"{style.sc('Queued')} (#{pos})"
         started_str = status["started_at"].strftime("%H:%M:%S UTC") if status.get("started_at") else "Pending"
-        limit_str = f"{status['limit']:,}" if status.get("limit") else "Unlimited ♾️"
+        limit_str = f"{status['limit']:,}" if status.get("limit") else style.sc("Unlimited")
         bar = _format_progress_bar(status["approved"], status.get("limit"))
 
         text = (
-            f"📊 <b>Queue Status — {title}</b>\n\n"
-            f"• <b>Job ID:</b> <code>{status['job_id']}</code>\n"
-            f"• <b>Position:</b> <b>{pos_str}</b>\n"
-            f"• <b>Jobs Ahead:</b> <b>{status['waiting']}</b>\n"
-            f"• <b>Started At:</b> <code>{started_str}</code>\n"
-            f"• <b>ETA:</b> <code>{status['eta_seconds']}s</code>\n\n"
+            f"{style.h('Queue Status')} — <b>{title}</b>\n\n"
+            f"• {style.kv('Job ID', f'<code>{status[\"job_id\"]}</code>')}\n"
+            f"• {style.kv('Position', f'<b>{pos_str}</b>')}\n"
+            f"• {style.kv('Jobs Ahead', f'<b>{status[\"waiting\"]}</b>')}\n"
+            f"• {style.kv('Started At', f'<code>{started_str}</code>')}\n"
+            f"• {style.kv('ETA', f'<code>{status[\"eta_seconds\"]}s</code>')}\n\n"
             f"[{bar}]\n"
-            f"• <b>Approved:</b> <b>{status['approved']:,}</b> / {limit_str}\n"
-            f"• <b>Processed:</b> <b>{status['processed']:,}</b>"
+            f"• {style.kv('Approved', f'<b>{status[\"approved\"]:,}</b> / {limit_str}')}\n"
+            f"• {style.kv('Processed', f'<b>{status[\"processed\"]:,}</b>')}"
         )
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Refresh", callback_data=f"queue_refresh:{target_chat_id}")],
-            [InlineKeyboardButton("🛑 Cancel Job", callback_data=f"cancel_queue:{target_chat_id}")],
+            [InlineKeyboardButton(style.btn("Refresh"), callback_data=f"queue_refresh:{target_chat_id}")],
+            [InlineKeyboardButton(style.btn("Cancel Job"), callback_data=f"cancel_queue:{target_chat_id}")],
         ])
         await msg.reply_text(text, reply_markup=markup)
         return

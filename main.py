@@ -6,6 +6,7 @@ import asyncio
 import sys
 
 from pyrogram import Client, idle
+from pyrogram.enums import ParseMode
 
 import config
 from config import LOGGER
@@ -21,6 +22,7 @@ app = Client(
     bot_token=config.BOT_TOKEN,
     plugins=dict(root="plugins"),
     workers=config.MAX_APPROVALS_PER_SECOND * 2,
+    parse_mode=ParseMode.HTML,
 )
 
 

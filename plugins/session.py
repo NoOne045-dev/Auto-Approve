@@ -1,8 +1,8 @@
 """
 plugins/session.py — Secure user session management (/login, /logout, /sessions).
 
-Implements interactive Telegram account login flow with instant message deletion
-and zero plaintext leakage guarantees.
+Implements interactive Telegram account login flow with instant message deletion,
+namespaced callbacks, and zero plaintext leakage guarantees.
 """
 
 import re
@@ -49,8 +49,8 @@ async def cmd_login(client: Client, msg: Message):
             "You already have an active Telegram user session connected.\n"
             "Use /sessions to view status or /logout to disconnect first.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📱 Check Status", callback_data="session_status")],
-                [InlineKeyboardButton("🚪 Logout", callback_data="session_logout")],
+                [InlineKeyboardButton("📱 Check Status", callback_data="session:status")],
+                [InlineKeyboardButton("🚪 Logout", callback_data="session:logout")],
             ])
         )
         return
@@ -61,7 +61,7 @@ async def cmd_login(client: Client, msg: Message):
     _login_states[uid] = {"step": "phone"}
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Cancel Login", callback_data="cancel_login")]
+        [InlineKeyboardButton("❌ Cancel Login", callback_data="session:cancel_login")]
     ])
 
     await msg.reply_text(
@@ -112,7 +112,7 @@ async def cmd_sessions(client: Client, msg: Message):
             "🔒 <i>Your session is stored securely using AES-256 (Fernet) encryption. Plaintext is never stored or revealed.</i>"
         )
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚪 Logout / Revoke Session", callback_data="session_logout")],
+            [InlineKeyboardButton("🚪 Logout / Revoke Session", callback_data="session:logout")],
             [InlineKeyboardButton("🔙 Main Menu", callback_data="main")],
         ])
     else:
@@ -122,7 +122,7 @@ async def cmd_sessions(client: Client, msg: Message):
             "Connect your Telegram user account to enable backlog join request approvals with /approveall."
         )
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔑 Connect Session (/login)", callback_data="session_login")],
+            [InlineKeyboardButton("🔑 Connect Session (/login)", callback_data="session:login")],
             [InlineKeyboardButton("🔙 Main Menu", callback_data="main")],
         ])
 
@@ -155,7 +155,9 @@ async def login_input_handler(client: Client, msg: Message):
             pass
 
         phone_clean = re.sub(r"[\s\-\(\)]", "", raw_input)
-        if not phone_clean.startswith("+"):
+        if phone_clean.startswith("00"):
+            phone_clean = "+" + phone_clean[2:]
+        elif not phone_clean.startswith("+"):
             phone_clean = "+" + phone_clean
 
         if not re.match(r"^\+[1-9]\d{6,14}$", phone_clean):
@@ -163,7 +165,7 @@ async def login_input_handler(client: Client, msg: Message):
                 "⚠️ <b>Invalid phone number format.</b>\n\n"
                 "Please send a valid phone number with country code (e.g. <code>+1234567890</code>):",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("❌ Cancel", callback_data="cancel_login")]
+                    [InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")]
                 ]),
             )
             return
@@ -193,7 +195,7 @@ async def login_input_handler(client: Client, msg: Message):
                 f"👉 Send the OTP code now (e.g. <code>1 2 3 4 5</code> or <code>12345</code>):\n\n"
                 f"🔒 <i>(Your code message will be immediately deleted)</i>",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("❌ Cancel", callback_data="cancel_login")]
+                    [InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")]
                 ]),
             )
         except FloodWait as fw:
@@ -258,7 +260,7 @@ async def login_input_handler(client: Client, msg: Message):
                 "👉 Please enter your <b>2FA Password</b> now:\n\n"
                 "🔒 <i>(Your password message will be immediately deleted upon receipt)</i>",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("❌ Cancel", callback_data="cancel_login")]
+                    [InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")]
                 ]),
             )
         except (PhoneCodeInvalid, PhoneCodeExpired):
@@ -266,7 +268,7 @@ async def login_input_handler(client: Client, msg: Message):
                 "❌ <b>Invalid or expired code.</b>\n\n"
                 "Please check the code in your Telegram app and send it again:",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("❌ Cancel", callback_data="cancel_login")]
+                    [InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")]
                 ]),
             )
         except Exception as e:
@@ -312,7 +314,7 @@ async def login_input_handler(client: Client, msg: Message):
                 "❌ <b>Incorrect 2FA password.</b>\n\n"
                 "Please enter the correct password or tap cancel:",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("❌ Cancel", callback_data="cancel_login")]
+                    [InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")]
                 ]),
             )
         except Exception as e:
@@ -322,7 +324,7 @@ async def login_input_handler(client: Client, msg: Message):
 
 
 # ─── Callbacks ──────────────────────────────────────────────────────────────
-@Client.on_callback_query(filters.regex("^cancel_login$"))
+@Client.on_callback_query(filters.regex("^session:cancel_login$"))
 async def cb_cancel_login(client: Client, q: CallbackQuery):
     uid = q.from_user.id
     await _cleanup_login_state(uid)
@@ -332,7 +334,7 @@ async def cb_cancel_login(client: Client, q: CallbackQuery):
     )
 
 
-@Client.on_callback_query(filters.regex("^session_logout$"))
+@Client.on_callback_query(filters.regex("^session:logout$"))
 async def cb_session_logout(client: Client, q: CallbackQuery):
     uid = q.from_user.id
     await _cleanup_login_state(uid)
@@ -343,13 +345,13 @@ async def cb_session_logout(client: Client, q: CallbackQuery):
         "• <b>Status:</b> Not connected ❌\n\n"
         "Your session was revoked. Send /login to connect a session.",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔑 Connect Session (/login)", callback_data="session_login")],
+            [InlineKeyboardButton("🔑 Connect Session (/login)", callback_data="session:login")],
             [InlineKeyboardButton("🔙 Main Menu", callback_data="main")],
         ])
     )
 
 
-@Client.on_callback_query(filters.regex("^session_login$"))
+@Client.on_callback_query(filters.regex("^session:login$"))
 async def cb_session_login(client: Client, q: CallbackQuery):
     await q.answer()
     uid = q.from_user.id
@@ -362,12 +364,12 @@ async def cb_session_login(client: Client, q: CallbackQuery):
         "👉 Example: <code>+1234567890</code>\n\n"
         "🔒 <i>All sensitive messages (phone, OTP, password) are immediately deleted upon receipt.</i>",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Cancel Login", callback_data="cancel_login")]
+            [InlineKeyboardButton("❌ Cancel Login", callback_data="session:cancel_login")]
         ]),
     )
 
 
-@Client.on_callback_query(filters.regex("^session_status$"))
+@Client.on_callback_query(filters.regex("^session:status$"))
 async def cb_session_status(client: Client, q: CallbackQuery):
     await q.answer()
     uid = q.from_user.id
@@ -386,7 +388,7 @@ async def cb_session_status(client: Client, q: CallbackQuery):
             "🔒 <i>Encryption: AES-256 (Fernet). Plaintext is never stored or revealed.</i>"
         )
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚪 Logout / Revoke Session", callback_data="session_logout")],
+            [InlineKeyboardButton("🚪 Logout / Revoke Session", callback_data="session:logout")],
             [InlineKeyboardButton("🔙 Main Menu", callback_data="main")],
         ])
     else:
@@ -396,9 +398,8 @@ async def cb_session_status(client: Client, q: CallbackQuery):
             "Connect your Telegram user account to enable backlog join request approvals with /approveall."
         )
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔑 Connect Session (/login)", callback_data="session_login")],
+            [InlineKeyboardButton("🔑 Connect Session (/login)", callback_data="session:login")],
             [InlineKeyboardButton("🔙 Main Menu", callback_data="main")],
         ])
 
     await q.message.edit_text(text, reply_markup=markup)
-

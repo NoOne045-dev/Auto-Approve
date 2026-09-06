@@ -156,6 +156,8 @@ class MongoDatabase:
 
     # ================= Global Bot Stats =================
     async def global_stats(self) -> Dict[str, Any]:
+        if self.db is None:
+            return {"users": 0, "chats": 0, "approved": 0, "rejected": 0}
         users = await self.users_count()
         chats = await self.db.chats.count_documents({})
         

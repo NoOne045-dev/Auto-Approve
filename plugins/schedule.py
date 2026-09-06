@@ -363,6 +363,14 @@ async def cb_sch_confirm(client: Client, q: CallbackQuery):
     tz_name = state.get("tz", "UTC")
     time_str = state.get("time_str", "")
 
+    # Check quota limits
+    from core.quota import is_within_quota
+    allowed, quota_err = await is_within_quota(uid, requested_count=limit or 1)
+    if not allowed:
+        await q.answer("❌ Quota Exceeded!", show_alert=True)
+        await q.message.edit_text(quota_err)
+        return
+
     job_id = await create_schedule(
         chat_id=chat_id,
         user_id=uid,

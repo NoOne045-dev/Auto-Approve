@@ -78,7 +78,13 @@ class QueueManager:
     def __init__(self):
         self._active_jobs: Dict[int, ApprovalJob] = {}  # chat_id -> ApprovalJob
         self._job_order: List[int] = []  # List of chat_ids in queue order
+        self._accepting_jobs = True
         self._lock = asyncio.Lock()
+
+    def stop_accepting_jobs(self) -> None:
+        """Stop accepting new approval jobs during graceful shutdown."""
+        self._accepting_jobs = False
+        LOGGER.info("[QUEUE_MANAGER | SHUTDOWN] Stopped accepting new approval queue jobs.")
 
     def is_running(self, chat_id: int) -> bool:
         """Return True if a job is actively running or queued for the given chat."""
@@ -134,6 +140,8 @@ class QueueManager:
         If a job is already running, returns the existing job ID.
         """
         async with self._lock:
+            if not self._accepting_jobs:
+                raise RuntimeError("Queue manager is shutting down and not accepting new jobs.")
             if self.is_running(chat_id):
                 return self._active_jobs[chat_id].job_id
 
@@ -209,9 +217,16 @@ class QueueManager:
 
                         job.approved += 1
                         await db.bump_stat(job.chat_id, approved=True)
+                        from core.recovery import record_last_approval_timestamp
+                        record_last_approval_timestamp()
+
+                        if job.requested_by:
+                            from core.quota import record_approval
+                            await record_approval(job.requested_by, 1)
                         break
                     except FloodWait as fw:
                         limiter.flood_wait(fw.value)
+                        await db.bump_stat(job.chat_id, approved=False)
                         await asyncio.sleep(fw.value + 1)
                     except RPCError as rpc:
                         LOGGER.debug(f"RPC error during approval: {rpc}")

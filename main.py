@@ -1,16 +1,19 @@
 """
-main.py — Main application entry point.
+main.py — Main application entry point with production-grade reliability supervisor & graceful shutdown.
 Powered by Kurigram (actively maintained Pyrogram fork) and Async MongoDB (Motor).
 """
-import asyncio
-import sys
 
+import asyncio
+import signal
+import sys
 from pyrogram import Client, idle
 from pyrogram.enums import ParseMode
 
 import config
 from config import LOGGER
 from database import db
+from core.queue_manager import queue_manager
+from core.recovery import recover_inflight_jobs
 from plugins.join_request import start_approval_workers
 from webserver import start_webserver
 
@@ -26,38 +29,79 @@ app = Client(
 )
 
 
+async def graceful_shutdown(runner=None):
+    """Graceful shutdown handler stopping queue acceptance, scheduler, web server, and DB connection."""
+    LOGGER.info("[SHUTDOWN | INITIATED] Graceful shutdown signal received...")
+    
+    # 1. Stop accepting new queue jobs
+    queue_manager.stop_accepting_jobs()
+    
+    # 2. Stop persistent job scheduler
+    from core.scheduler import scheduler
+    try:
+        await scheduler.stop()
+        LOGGER.info("[SHUTDOWN | SCHEDULER] Scheduler stopped cleanly.")
+    except Exception as e:
+        LOGGER.error(f"[SHUTDOWN | SCHEDULER_ERROR] {e}")
+
+    # 3. Stop Telegram Client
+    try:
+        if app.is_connected:
+            await app.stop()
+            LOGGER.info("[SHUTDOWN | TELEGRAM] Pyrogram client disconnected.")
+    except Exception as e:
+        LOGGER.error(f"[SHUTDOWN | TELEGRAM_ERROR] {e}")
+
+    # 4. Stop web server
+    if runner:
+        try:
+            await runner.cleanup()
+            LOGGER.info("[SHUTDOWN | WEBSERVER] Web server stopped.")
+        except Exception as e:
+            LOGGER.error(f"[SHUTDOWN | WEBSERVER_ERROR] {e}")
+
+    # 5. Close MongoDB connection
+    try:
+        await db.close()
+        LOGGER.info("[SHUTDOWN | DATABASE] MongoDB connection closed.")
+    except Exception as e:
+        LOGGER.error(f"[SHUTDOWN | DATABASE_ERROR] {e}")
+
+    LOGGER.info("[SHUTDOWN | COMPLETE] All bot processes terminated cleanly.")
+
+
 async def main():
     LOGGER.info("=" * 60)
-    LOGGER.info("Starting Auto-Approve Bot (Powered by Kurigram)...")
+    LOGGER.info("[STARTUP | INIT] Starting Auto-Approve Bot (Powered by Kurigram)...")
     LOGGER.info("=" * 60)
 
     # Validate essential environment credentials
     if not config.BOT_TOKEN or not config.API_ID or not config.API_HASH:
-        LOGGER.critical("CRITICAL: BOT_TOKEN, API_ID, and API_HASH must be set in .env!")
-        LOGGER.critical("Please copy .env.example to .env and configure your credentials.")
+        LOGGER.critical("[STARTUP | CRITICAL] BOT_TOKEN, API_ID, and API_HASH must be set in .env!")
         sys.exit(1)
 
     if not config.MONGO_URL:
-        LOGGER.critical("CRITICAL: MONGO_URL is missing in .env! MongoDB is required.")
+        LOGGER.critical("[STARTUP | CRITICAL] MONGO_URL is missing in .env! MongoDB is required.")
         sys.exit(1)
 
     # Validate session encryption key
     if not config.validate_session_encryption_key():
-        LOGGER.critical("CRITICAL: SESSION_ENCRYPTION_KEY is missing, placeholder, or invalid in .env!")
-        LOGGER.critical("Please set a valid 32-byte Fernet key. Generate one with:")
-        LOGGER.critical("python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
+        LOGGER.critical("[STARTUP | CRITICAL] SESSION_ENCRYPTION_KEY is missing, placeholder, or invalid in .env!")
         sys.exit(1)
 
     # Connect to MongoDB
     await db.connect()
 
-    # Start web server first — Render marks a "Web Service" deploy as failed
-    # if nothing binds to $PORT within the deploy timeout.
+    # Start web server first for Render port binding
     runner = await start_webserver()
+
     # Start Telegram Client
     await app.start()
     me = await app.get_me()
-    LOGGER.info(f"Bot started successfully as @{me.username} (ID: {me.id})")
+    LOGGER.info(f"[STARTUP | CONNECTED] Bot active as @{me.username} (ID: {me.id})")
+
+    # Restore in-flight interrupted jobs from MongoDB
+    await recover_inflight_jobs(app)
 
     # Start async approval queue workers
     start_approval_workers(app, count=4)
@@ -66,22 +110,27 @@ async def main():
     from core.scheduler import scheduler
     scheduler.start(app)
 
-    LOGGER.info("Bot is active, scheduler is running, and listening for join requests...")
+    LOGGER.info("[STARTUP | ACTIVE] Bot listening for join requests...")
+
+    # Attach signal handlers for graceful shutdown on Linux/macOS
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(graceful_shutdown(runner)))
+        except (NotImplementedError, RuntimeError):
+            pass
 
     # Keep running until terminated
-    await idle()
-
-    # Graceful shutdown
-    LOGGER.info("Stopping bot gracefully...")
-    await scheduler.stop()
-    await app.stop()
-    await runner.cleanup()
-    await db.close()
-    LOGGER.info("Bot stopped successfully.")
+    try:
+        await idle()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        await graceful_shutdown(runner)
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        LOGGER.info("Bot exited.")
+        LOGGER.info("[SHUTDOWN] Bot process exited.")

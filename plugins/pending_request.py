@@ -114,6 +114,13 @@ async def cmd_approveall(client: Client, msg: Message):
         await msg.reply_text(f"{style.h('Access Denied')}: You must be an administrator of this chat to run /approveall.")
         return
 
+    # Check quota limits
+    from core.quota import is_within_quota
+    allowed, quota_err = await is_within_quota(user.id, requested_count=1)
+    if not allowed:
+        await msg.reply_text(quota_err)
+        return
+
     if queue_manager.is_running(target_chat_id):
         await msg.reply_text(
             f"{style.h('Job already running')} for chat <code>{target_chat_id}</code>.\n"

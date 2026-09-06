@@ -145,6 +145,7 @@ async def cb_help(client: Client, q: CallbackQuery):
         f"auto-approval, captcha, delays, and custom welcome messages.\n\n"
         f"{style.h('Commands')}\n"
         "• /start — Open main menu\n"
+        "• /managechnls — Unified channel control center\n"
         "• /admin — Open channel control center\n"
         "• /approveall [chat_id] [limit] — Bulk approve pending requests\n"
         "• /queue [chat_id] — View real-time queue and ETA\n"

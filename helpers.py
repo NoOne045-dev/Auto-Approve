@@ -263,7 +263,6 @@ class kb:
             ],
             [
                 Btn(f"{style.btn('Welcome')}  ·  {wel}", callback_data=f"welcome:{chat_id}"),
-                Btn(style.btn("Buttons"), callback_data=f"wel_btns:{chat_id}"),
             ],
             [
                 Btn(f"{style.btn('Require Avatar')}  ·  {pfp}", callback_data=f"toggle:pfp:{chat_id}"),

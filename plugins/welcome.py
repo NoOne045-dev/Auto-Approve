@@ -2,7 +2,7 @@
 plugins/welcome.py — Interactive welcome message, media, and button builder.
 """
 
-from pyrogram import Client, filters
+from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import CallbackQuery, Message
 from database import db
 from helpers import kb, fmt, style, ui
@@ -141,13 +141,18 @@ async def cb_preview_wel(client: Client, q: CallbackQuery):
 # ─── Input Listener for Setting Text / Media ────────────────────────────────
 @Client.on_message(
     filters.private
-    & ~filters.command(["start", "help", "admin", "settings", "ping", "stats", "broadcast", "channels"])
+    & ~filters.command([
+        "start", "help", "admin", "settings", "ping", "stats", "broadcast",
+        "channels", "managechnls", "managechannels", "manage", "login", "logout",
+        "sessions", "session", "approveall", "queue", "schedule", "schedules",
+    ])
 )
 async def welcome_input_handler(client: Client, msg: Message):
     uid = msg.from_user.id
     state = _user_states.get(uid)
     if not state:
-        return
+        # Last catch-all in the chain — nothing else wants this message.
+        raise ContinuePropagation
 
     action = state["action"]
     chat_id = state["chat_id"]

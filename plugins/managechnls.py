@@ -6,8 +6,9 @@ live previews, premium feature gates, and cached channel listings.
 """
 
 from typing import Dict, Optional
-from pyrogram import Client, filters
+from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
+import config
 from database import db
 from core.cache import get_cached_chat, set_cached_chat, invalidate_chat, get_cached_admin_chats
 from core.permissions import can_manage_chat
@@ -115,10 +116,11 @@ async def cb_mchnls_chat(client: Client, q: CallbackQuery):
     rejected = stats.get("rejected", 0)
     plan = await get_chat_plan(chat_id)
 
-    # Feature gate checks via core/quota.py
-    has_gb = await is_feature_allowed(chat_id, "goodbye", uid)
-    has_pfp = await is_feature_allowed(chat_id, "require_pfp", uid)
-    has_cas = await is_feature_allowed(chat_id, "cas_check", uid)
+    # Feature gate checks via core/quota.py — bypassed entirely while
+    # config.PUBLIC_MODE is on (bot running free-for-everyone).
+    has_gb = config.PUBLIC_MODE or await is_feature_allowed(chat_id, "goodbye", uid)
+    has_pfp = config.PUBLIC_MODE or await is_feature_allowed(chat_id, "require_pfp", uid)
+    has_cas = config.PUBLIC_MODE or await is_feature_allowed(chat_id, "cas_check", uid)
 
     aa = style.on(cfg.get("auto_approve", True))
     cap = style.on(cfg.get("captcha", False))
@@ -173,6 +175,65 @@ async def cb_mchnls_chat(client: Client, q: CallbackQuery):
     await q.answer()
 
 
+# ─── Channel List Pagination / Refresh (was unwired — every Refresh/Next/
+# Previous button in the control center pointed here and did nothing) ───────
+@Client.on_callback_query(filters.regex(r"^mchnls_list:(\d+)$"))
+async def cb_mchnls_list(client: Client, q: CallbackQuery):
+    page = int(q.matches[0].group(1))
+    await _render_channel_list(client, q, q.from_user.id, page=page)
+    await q.answer()
+
+
+# ─── Delay Picker (was unwired — "Delay" button had no handler) ────────────
+_DELAY_OPTIONS = [
+    ("Instant (0s)", 0), ("5 Seconds", 5), ("15 Seconds", 15),
+    ("30 Seconds", 30), ("1 Minute", 60), ("5 Minutes", 300),
+]
+
+
+@Client.on_callback_query(filters.regex(r"^mchnls_delay:(-?\d+)$"))
+async def cb_mchnls_delay(client: Client, q: CallbackQuery):
+    chat_id = int(q.matches[0].group(1))
+    uid = q.from_user.id
+    if not await can_manage_chat(uid, chat_id, client):
+        await q.answer("❌ Permission denied.", show_alert=True)
+        return
+
+    rows, row = [], []
+    for label, val in _DELAY_OPTIONS:
+        row.append(InlineKeyboardButton(label, callback_data=f"mchnls_delay_set:{chat_id}:{val}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(style.btn("Back"), callback_data=f"mchnls_chat:{chat_id}")])
+
+    await ui.edit(
+        q.message,
+        f"{style.h('Select Auto-Approval Delay')}\n\n"
+        "Configure how long the bot waits before approving a join request.\n"
+        "<i>A short delay mimics human admin timing and reduces bot-detection noise.</i>",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^mchnls_delay_set:(-?\d+):(\d+)$"))
+async def cb_mchnls_delay_set(client: Client, q: CallbackQuery):
+    chat_id = int(q.matches[0].group(1))
+    delay = int(q.matches[0].group(2))
+    uid = q.from_user.id
+    if not await can_manage_chat(uid, chat_id, client):
+        await q.answer("❌ Permission denied.", show_alert=True)
+        return
+
+    await db.update_chat_key(chat_id, "delay", delay)
+    invalidate_chat(chat_id)
+    await q.answer(f"Delay set to {delay} seconds!", show_alert=True)
+    await cb_mchnls_chat(client, q)
+
+
 # ─── Setting Toggles ────────────────────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r"^mchnls_tgl:(aa|cap|pfp|cas):(-?\d+)$"))
 async def cb_mchnls_tgl(client: Client, q: CallbackQuery):
@@ -195,7 +256,10 @@ async def cb_mchnls_tgl(client: Client, q: CallbackQuery):
         cfg["captcha"] = new_val
         await db.update_chat_key(chat_id, "captcha", new_val)
     elif key in ("pfp", "cas"):
-        if not await is_feature_allowed(chat_id, "require_pfp" if key == "pfp" else "cas_check", uid):
+        allowed = config.PUBLIC_MODE or await is_feature_allowed(
+            chat_id, "require_pfp" if key == "pfp" else "cas_check", uid
+        )
+        if not allowed:
             await q.answer("⭐ Premium feature locked. Upgrade plan to enable.", show_alert=True)
             return
         filters_d = cfg.setdefault("filters", {})
@@ -246,7 +310,7 @@ async def cb_mchnls_wel(client: Client, q: CallbackQuery):
         f"• <code>{{mention}}</code>, <code>{{first_name}}</code>, <code>{{full_name}}</code>\n"
         f"• <code>{{username}}</code>, <code>{{user_id}}</code>, <code>{{chat_title}}</code>\n"
         f"• <code>{{date}}</code>, <code>{{time}}</code>, <code>{{invite_link}}</code>\n\n"
-        f"<i>Format inline buttons as: <code>[Button Text \| https://example.com]</code></i>"
+        f"<i>Format inline buttons as: <code>[Button Text | https://example.com]</code></i>"
     )
 
     await ui.edit(q.message, text, reply_markup=InlineKeyboardMarkup(rows))
@@ -289,8 +353,8 @@ async def cb_mchnls_gb(client: Client, q: CallbackQuery):
         await q.answer("❌ Permission denied.", show_alert=True)
         return
 
-    # Check premium gate for Goodbye feature
-    if not await is_feature_allowed(chat_id, "goodbye", uid):
+    # Check premium gate for Goodbye feature (skipped while PUBLIC_MODE is on)
+    if not (config.PUBLIC_MODE or await is_feature_allowed(chat_id, "goodbye", uid)):
         await q.answer("⭐ Goodbye messages require a PRO or ENTERPRISE plan.", show_alert=True)
         return
 
@@ -366,7 +430,7 @@ async def cb_mchnls_upgrade(client: Client, q: CallbackQuery):
         f"Upgrade your channel to <b>PRO</b> or <b>ENTERPRISE</b> tier to unlock goodbye messages, avatar filters, and priority processing!"
     )
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⭐ Contact Owner to Upgrade", url="https://t.me/telegram")],
+        [InlineKeyboardButton("⭐ Contact Owner to Upgrade", url=config.OWNER_CONTACT_URL)],
         [InlineKeyboardButton("🔙 Back to Settings", callback_data=f"mchnls_chat:{chat_id}")],
     ])
     await ui.edit(q.message, text, reply_markup=markup)
@@ -486,7 +550,9 @@ async def mchnls_input_handler(client: Client, msg: Message):
     uid = msg.from_user.id
     state = _editor_states.get(uid)
     if not state:
-        return
+        # Not our flow — let it fall through to the next plugin's catch-all
+        # (schedule.py / session.py / welcome.py) instead of eating it.
+        raise ContinuePropagation
 
     action = state["action"]
     kind = state["kind"]
@@ -554,4 +620,3 @@ async def mchnls_input_handler(client: Client, msg: Message):
             )
         else:
             await msg.reply_text("⚠️ Please send a valid Photo, Video, GIF, or Document (or type <code>remove</code>).")
-

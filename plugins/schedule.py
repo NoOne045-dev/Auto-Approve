@@ -7,7 +7,7 @@ and job inspection with inline cancellations.
 
 import datetime
 from typing import Dict, Optional
-from pyrogram import Client, filters
+from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ChatType
 import config
@@ -363,13 +363,14 @@ async def cb_sch_confirm(client: Client, q: CallbackQuery):
     tz_name = state.get("tz", "UTC")
     time_str = state.get("time_str", "")
 
-    # Check quota limits
-    from core.quota import is_within_quota
-    allowed, quota_err = await is_within_quota(uid, requested_count=limit or 1)
-    if not allowed:
-        await q.answer("❌ Quota Exceeded!", show_alert=True)
-        await q.message.edit_text(quota_err)
-        return
+    # Check quota limits (skipped entirely while config.PUBLIC_MODE is on)
+    if not config.PUBLIC_MODE:
+        from core.quota import is_within_quota
+        allowed, quota_err = await is_within_quota(uid, requested_count=limit or 1)
+        if not allowed:
+            await q.answer("❌ Quota Exceeded!", show_alert=True)
+            await q.message.edit_text(quota_err)
+            return
 
     job_id = await create_schedule(
         chat_id=chat_id,
@@ -462,7 +463,9 @@ async def schedule_text_input_handler(client: Client, msg: Message):
     uid = msg.from_user.id
     state = _wizard_states.get(uid)
     if not state:
-        return
+        # Not a scheduling wizard step — hand off to the next plugin's
+        # catch-all (session.py / welcome.py) instead of eating it.
+        raise ContinuePropagation
 
     step = state.get("step")
     raw_text = (msg.text or "").strip()

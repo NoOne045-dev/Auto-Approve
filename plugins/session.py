@@ -6,7 +6,7 @@ namespaced callbacks, and zero plaintext leakage guarantees.
 """
 
 import re
-from pyrogram import Client, filters
+from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import (
     FloodWait,
@@ -141,7 +141,9 @@ async def login_input_handler(client: Client, msg: Message):
     uid = msg.from_user.id
     state = _login_states.get(uid)
     if not state:
-        return
+        # Not a login step — hand off to the next plugin's catch-all
+        # (welcome.py) instead of eating it.
+        raise ContinuePropagation
 
     step = state.get("step")
     raw_input = (msg.text or "").strip()

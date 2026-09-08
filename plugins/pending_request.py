@@ -3,6 +3,10 @@ plugins/pending_request.py — Rebuilt /approveall and /queue command suite.
 
 Implements rate-limited backlog join request processing, live progress tracking,
 exact limit enforcement, and queue status inspection.
+
+/approve_pending is now an alias of /approveall (they did the same backlog-
+clearing job under two different command names). plugins/pending_requests.py
+has been merged into this file and should be deleted from the repo.
 """
 
 import datetime
@@ -62,7 +66,7 @@ def _format_progress_bar(current: int, total: Optional[int], length: int = 10) -
 
 
 # ─── /approveall Command ───────────────────────────────────────────────────
-@Client.on_message(filters.command(["approveall", "bulk_approve"]))
+@Client.on_message(filters.command(["approveall", "bulk_approve", "approve_pending"]))
 async def cmd_approveall(client: Client, msg: Message):
     user = msg.from_user
     args = msg.command[1:] if len(msg.command) > 1 else []
@@ -114,12 +118,13 @@ async def cmd_approveall(client: Client, msg: Message):
         await msg.reply_text(f"{style.h('Access Denied')}: You must be an administrator of this chat to run /approveall.")
         return
 
-    # Check quota limits
-    from core.quota import is_within_quota
-    allowed, quota_err = await is_within_quota(user.id, requested_count=1)
-    if not allowed:
-        await msg.reply_text(quota_err)
-        return
+    # Check quota limits (skipped entirely while config.PUBLIC_MODE is on)
+    if not config.PUBLIC_MODE:
+        from core.quota import is_within_quota
+        allowed, quota_err = await is_within_quota(user.id, requested_count=1)
+        if not allowed:
+            await msg.reply_text(quota_err)
+            return
 
     if queue_manager.is_running(target_chat_id):
         await msg.reply_text(

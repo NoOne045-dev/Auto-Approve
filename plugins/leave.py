@@ -69,4 +69,3 @@ async def on_chat_member_left(client: Client, event: ChatMemberUpdated):
             await client.send_message(target_id, text=clean_text, reply_markup=markup)
     except Exception:
         pass
-

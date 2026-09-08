@@ -59,6 +59,19 @@ CACHE_TTL_SECONDS: int = int(os.getenv("CACHE_TTL_SECONDS", "300") if os.getenv(
 # ─── Security & Cryptography ────────────────────────────────────────────────
 SESSION_ENCRYPTION_KEY: str = os.getenv("SESSION_ENCRYPTION_KEY", "").strip()
 
+# ─── Access Mode (Free/Public vs Premium-Gated) ─────────────────────────────
+# When True (default), every plan/quota-gated feature across the bot is
+# unlocked for everyone — runs fully free & public, no upgrade prompts, no
+# daily/weekly/monthly quota checks. Set PUBLIC_MODE=false in .env to
+# re-enable the PRO/ENTERPRISE plan gating in core/quota.py. One switch.
+PUBLIC_MODE: bool = os.getenv("PUBLIC_MODE", "true").strip().lower() in ("1", "true", "yes")
+
+# ─── Upgrade Contact Link ────────────────────────────────────────────────────
+# Shown on every "Contact Owner to Upgrade" button (plan.py, managechnls.py).
+# Set OWNER_CONTACT_URL in .env to your own @username before going live —
+# e.g. OWNER_CONTACT_URL=https://t.me/your_username
+OWNER_CONTACT_URL: str = (os.getenv("OWNER_CONTACT_URL") or "https://t.me/telegram").strip()
+
 _PLACEHOLDER_KEYS = {
     "",
     "<output of Fernet.generate_key()>",

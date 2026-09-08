@@ -49,7 +49,7 @@ async def _render_plan_text(user_id: int) -> str:
     ]
 
     for key, label in feature_labels:
-        icon = "✅" if (key in features_included or config.is_admin(user_id)) else "🔒"
+        icon = "✅" if (config.PUBLIC_MODE or key in features_included or config.is_admin(user_id)) else "🔒"
         checklist.append(f"• {icon} {label}")
 
     checklist_str = "\n".join(checklist)
@@ -146,9 +146,8 @@ async def cb_plan_upgrade(client: Client, q: CallbackQuery):
         "Contact the master bot administrator to upgrade your account instantly."
     )
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💬 Contact Owner to Upgrade", url="https://t.me/telegram")],
+        [InlineKeyboardButton("💬 Contact Owner to Upgrade", url=config.OWNER_CONTACT_URL)],
         [InlineKeyboardButton("🔙 Back to Plan", callback_data="plan_refresh")],
     ])
     await ui.edit(q.message, text, reply_markup=markup)
     await q.answer()
-

@@ -175,4 +175,3 @@ async def cb_cancel_mass(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
     _active_mass_ops.discard(chat_id)
     await q.answer("Operation cancelled!", show_alert=True)
-

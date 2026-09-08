@@ -2,14 +2,11 @@
 plugins/start.py — /start, /help, /ping commands and navigation callbacks.
 """
 
-import time
 from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, Message
 import config
 from database import db
 from helpers import kb, fmt, style, ui
-
-_start_time = time.time()
 
 
 def _start_caption(first_name: str) -> str:
@@ -60,23 +57,14 @@ async def cmd_start(client: Client, msg: Message):
     )
 
 
-@Client.on_message(filters.command("ping"))
-async def cmd_ping(client: Client, msg: Message):
-    start = time.monotonic()
-    m = await msg.reply_text(f"{style.h('Pinging')} Telegram API...")
-    latency = (time.monotonic() - start) * 1000
-    uptime_sec = int(time.time() - _start_time)
-    hours, rem = divmod(uptime_sec, 3600)
-    minutes, seconds = divmod(rem, 60)
-
-    await m.edit_text(
-        f"{style.h('Pong')}\n"
-        f"{style.kv('API Latency', f'<code>{latency:.1f}ms</code>')}\n"
-        f"{style.kv('Uptime', f'<code>{hours}h {minutes}m {seconds}s</code>')}"
-    )
+# NOTE: /ping used to be registered here too, duplicating stats.py's
+# ["ping", "health", "system"] handler. Since both matched plain /ping and
+# ran in the same handler group, this one always shadowed the richer
+# diagnostics version in stats.py. Removed — stats.py is now the single
+# owner of /ping, /health, /system.
 
 
-@Client.on_message(filters.command(["admin", "settings", "channels"]) & filters.private)
+@Client.on_message(filters.command(["admin", "settings"]) & filters.private)
 async def cmd_admin(client: Client, msg: Message):
     uid = msg.from_user.id
     owner_filter = uid if not config.is_admin(uid) else None

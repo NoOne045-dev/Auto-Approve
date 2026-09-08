@@ -142,4 +142,3 @@ async def cb_broadcast_cancel(client: Client, q: CallbackQuery):
     _broadcast_running = False
     await q.answer("Broadcast stopped!", show_alert=True)
     await q.message.edit_text(f"{style.h('Broadcast cancelled')}.")
-

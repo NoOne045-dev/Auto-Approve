@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait
 import config
 from config import LOGGER
 from database import db
-from helpers import kb, limiter, style, ui
+from helpers import kb, limiter, style, ui, get_join_user
 
 _active_mass_ops = set()
 
@@ -51,7 +51,9 @@ async def cb_mass_approve(client: Client, q: CallbackQuery):
             if chat_id not in _active_mass_ops:
                 break
 
-            user = req.from_user
+            user = get_join_user(req)
+            if not user:
+                continue
             await limiter.acquire()
             try:
                 await client.approve_chat_join_request(chat_id=chat_id, user_id=user.id)
@@ -103,7 +105,9 @@ async def cb_mass_decline(client: Client, q: CallbackQuery):
             if chat_id not in _active_mass_ops:
                 break
 
-            user = req.from_user
+            user = get_join_user(req)
+            if not user:
+                continue
             await limiter.acquire()
             try:
                 await client.decline_chat_join_request(chat_id=chat_id, user_id=user.id)
@@ -147,7 +151,9 @@ async def cb_mass_export(client: Client, q: CallbackQuery):
     count = 0
     try:
         async for req in client.get_chat_join_requests(chat_id=chat_id):
-            user = req.from_user
+            user = get_join_user(req)
+            if not user:
+                continue
             link = req.invite_link.invite_link if req.invite_link else "N/A"
             date_str = req.date.strftime("%Y-%m-%d %H:%M:%S") if req.date else "N/A"
             fn = user.first_name.replace(",", " ") if user.first_name else ""

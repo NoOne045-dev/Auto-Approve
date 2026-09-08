@@ -202,7 +202,7 @@ class kb:
             ],
             [
                 Btn(style.btn("Help & Setup"), callback_data="help"),
-                Btn(style.btn("Manage Settings"), callback_data="chats:1"),
+                Btn(style.btn("Manage Settings"), callback_data="mchnls_list:1"),
             ],
         ]
         if is_admin_user:
@@ -323,6 +323,24 @@ class kb:
             [Btn(style.btn("Preview Message"), callback_data=f"preview_wel:{chat_id}")],
             [Btn(style.btn("Back to Settings"), callback_data=f"chat:{chat_id}")],
         ])
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  JOIN REQUEST COMPATIBILITY
+# ═══════════════════════════════════════════════════════════════════════════════
+def get_join_user(req):
+    """
+    Return the requester User from a join-request-like object, regardless of
+    the exact type/attribute name this Pyrogram/Kurigram build uses — seen so
+    far: ChatJoinRequest.from_user (Pyrogram), ChatJoiner.user or .from_user
+    (Kurigram), plus a couple of plausible alternates. Fixes:
+        AttributeError: 'ChatJoinRequest'/'ChatJoiner' object has no attribute 'from_user'
+    """
+    for attr in ("from_user", "user", "requester", "member", "requesting_user"):
+        val = getattr(req, attr, None)
+        if val is not None:
+            return val
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -36,6 +36,48 @@ async def _cleanup_login_state(user_id: int):
             pass
 
 
+async def _perform_logout(uid: int):
+    """
+    Actually terminate the user's Telegram session server-side (not just
+    delete our DB copy), then remove the local record.
+    Returns (had_session: bool, terminated_live: bool, revoked: bool).
+    """
+    existing = await get_session_info(uid)
+    if not existing:
+        return False, False, False
+
+    session_str = (
+        existing.get("session_string")
+        or existing.get("string_session")
+        or existing.get("session")
+        or existing.get("pyrogram_session")
+    )
+
+    terminated_live = False
+    if session_str:
+        temp_client = Client(
+            name=f"logout_{uid}",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=session_str,
+            in_memory=True,
+        )
+        try:
+            await temp_client.connect()
+            await temp_client.log_out()  # server-side Telegram logout, not just a DB delete
+            terminated_live = True
+        except Exception as e:
+            LOGGER.warning(f"Live session log_out failed for user {uid}: {e}")
+            try:
+                if temp_client.is_connected:
+                    await temp_client.disconnect()
+            except Exception:
+                pass
+
+    revoked = await revoke_session(uid)
+    return True, terminated_live, revoked
+
+
 # ─── /login Command ─────────────────────────────────────────────────────────
 @Client.on_message(filters.command("login") & filters.private)
 async def cmd_login(client: Client, msg: Message):
@@ -79,12 +121,26 @@ async def cmd_login(client: Client, msg: Message):
 async def cmd_logout(client: Client, msg: Message):
     uid = msg.from_user.id
     await _cleanup_login_state(uid)
-    revoked = await revoke_session(uid)
+    had_session, terminated_live, revoked = await _perform_logout(uid)
 
-    if revoked:
+    if not had_session:
+        await msg.reply_text(
+            "ℹ️ <b>No Active Session</b>\n\n"
+            "You do not have any connected session. Use /login to connect one."
+        )
+    elif terminated_live:
         await msg.reply_text(
             "🚪 <b>Logged Out Successfully</b>\n\n"
-            "✅ Your stored Telegram session has been completely deleted from the database."
+            "✅ Your Telegram session was terminated on Telegram's servers "
+            "(not just removed from our database), and the local record was deleted."
+        )
+    elif revoked:
+        await msg.reply_text(
+            "🚪 <b>Logged Out</b>\n\n"
+            "✅ The stored session record was deleted from our database.\n"
+            "⚠️ Couldn't reach Telegram to terminate it server-side (it may "
+            "already be invalid/expired). If you're concerned, revoke it "
+            "manually from Telegram → Settings → Devices."
         )
     else:
         await msg.reply_text(
@@ -340,8 +396,13 @@ async def cb_cancel_login(client: Client, q: CallbackQuery):
 async def cb_session_logout(client: Client, q: CallbackQuery):
     uid = q.from_user.id
     await _cleanup_login_state(uid)
-    revoked = await revoke_session(uid)
-    await q.answer("Logged out successfully!" if revoked else "No active session.", show_alert=True)
+    had_session, terminated_live, revoked = await _perform_logout(uid)
+    if terminated_live:
+        await q.answer("Session terminated on Telegram's servers!", show_alert=True)
+    elif revoked:
+        await q.answer("DB record deleted (couldn't reach Telegram to revoke live).", show_alert=True)
+    else:
+        await q.answer("No active session.", show_alert=True)
     await q.message.edit_text(
         "📱 <b>Telegram Session Status</b>\n\n"
         "• <b>Status:</b> Not connected ❌\n\n"

@@ -15,7 +15,7 @@ from pyrogram.errors import FloodWait, RPCError
 import config
 from config import LOGGER
 from database import db
-from helpers import limiter
+from helpers import limiter, get_join_user
 
 UTC = datetime.timezone.utc
 
@@ -201,7 +201,13 @@ class QueueManager:
                     job.status = "completed"
                     break
 
-                user = req.from_user
+                user = get_join_user(req)
+                if not user:
+                    attrs = [a for a in dir(req) if not a.startswith("_")]
+                    LOGGER.warning(f"Skipping unresolved join request in chat {job.chat_id} — {type(req).__name__} has no known user attr. Available: {attrs}")
+                    job.processed += 1
+                    continue
+
                 await limiter.acquire()
 
                 # Approve request using client

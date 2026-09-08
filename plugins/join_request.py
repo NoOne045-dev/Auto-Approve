@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait, UserIsBlocked, PeerIdInvalid, ChatAdminRe
 import config
 from config import LOGGER
 from database import db
-from helpers import limiter, make_captcha, check_spam, fmt, style
+from helpers import limiter, make_captcha, check_spam, fmt, style, get_join_user
 
 # Approval Task Queue: (chat_id, user_id, user_obj, chat_obj, delay, invite_link)
 approval_queue: asyncio.Queue = asyncio.Queue()
@@ -132,7 +132,11 @@ def start_approval_workers(client: Client, count: int = 4):
 @Client.on_chat_join_request()
 async def handle_chat_join_request(client: Client, req: ChatJoinRequest):
     chat = req.chat
-    user = req.from_user
+    user = get_join_user(req)
+    if not user:
+        attrs = [a for a in dir(req) if not a.startswith("_")]
+        LOGGER.error(f"Join request in {chat.id} had no resolvable requester on {type(req).__name__} — skipping. Available: {attrs}")
+        return
     invite_link = req.invite_link.invite_link if req.invite_link else None
 
     # Register user in DB

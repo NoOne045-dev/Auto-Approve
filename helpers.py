@@ -159,6 +159,8 @@ class ui:
 
     @staticmethod
     async def edit(message, text: str, reply_markup=None):
+        from pyrogram.errors import MessageNotModified
+
         has_media = bool(
             getattr(message, "photo", None)
             or getattr(message, "video", None)
@@ -172,9 +174,23 @@ class ui:
                     return await message.reply_text(text, reply_markup=reply_markup)
                 return await message.edit_caption(caption=text, reply_markup=reply_markup)
             return await message.edit_text(text, reply_markup=reply_markup)
+        except MessageNotModified:
+            # Content is already exactly what's on screen (e.g. tapping
+            # Refresh with nothing new) — nothing to do, not a real error.
+            # Previously this fell through to the generic except below,
+            # which retried with the WRONG method for media messages
+            # (edit_text on a photo caption always fails too) and ended up
+            # deleting + resending the message on every single Refresh tap.
+            return message
         except Exception:
             try:
+                # Retry with the *correct* method for this message type,
+                # not unconditionally edit_text.
+                if has_media:
+                    return await message.edit_caption(caption=text, reply_markup=reply_markup)
                 return await message.edit_text(text, reply_markup=reply_markup)
+            except MessageNotModified:
+                return message
             except Exception:
                 try:
                     await message.delete()

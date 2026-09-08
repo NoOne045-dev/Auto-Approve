@@ -9,8 +9,9 @@ from typing import Dict, Optional
 from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 import config
+from config import LOGGER
 from database import db
-from core.cache import get_cached_chat, set_cached_chat, invalidate_chat, get_cached_admin_chats
+from core.cache import get_cached_chat, set_cached_chat, invalidate_chat
 from core.permissions import can_manage_chat
 from core.quota import is_feature_allowed, get_chat_plan
 from helpers import fmt, style, ui
@@ -24,18 +25,40 @@ _editor_states: Dict[int, dict] = {}
 @Client.on_message(filters.command(["managechnls", "managechannels", "channels", "manage"]))
 async def cmd_managechnls(client: Client, msg: Message):
     uid = msg.from_user.id
-    await _render_channel_list(client, msg, uid, page=1)
+    try:
+        await _render_channel_list(client, msg, uid, page=1)
+    except Exception as e:
+        LOGGER.error(f"/managechnls render failed for user {uid}: {e}")
+        await msg.reply_text(f"{style.h('Something went wrong loading your channels')}. Please try again.")
 
 
 async def _render_channel_list(client: Client, target, user_id: int, page: int = 1):
-    """Render cached list of channels managed by user_id."""
-    all_chats = await get_cached_admin_chats(user_id, db.all_chats)
-    
-    # Filter chats the user is authorized to manage
-    managed_chats = []
-    for c in all_chats:
-        if await can_manage_chat(user_id, c["chat_id"], client):
-            managed_chats.append(c)
+    """Render list of channels managed by user_id."""
+    from pyrogram.errors import MessageNotModified
+
+    is_admin_user = config.is_admin(user_id)
+
+    # NOTE: this used to filter every chat through can_manage_chat()
+    # (core/permissions.py, a live per-chat check) fed by
+    # get_cached_admin_chats() (core/cache.py) — neither of which I've
+    # reviewed. That path could legitimately return zero chats (and, if it
+    # raised, leave the Refresh button's spinner hanging with no q.answer())
+    # even when the DB already had chats correctly attributed to this user.
+    # /admin (start.py) uses a plain owner_id match successfully, so this
+    # does the same thing first and only falls back to the live check for
+    # chats with no recorded owner_id (e.g. ones added before chat_added.py
+    # started stamping it).
+    all_chats = await db.all_chats(owner_id=None if is_admin_user else user_id)
+    managed_chats = list(all_chats)
+
+    if not is_admin_user:
+        unowned = [c for c in await db.all_chats() if c.get("chat_id") not in {x["chat_id"] for x in managed_chats} and not c.get("owner_id")]
+        for c in unowned:
+            try:
+                if await can_manage_chat(user_id, c["chat_id"], client):
+                    managed_chats.append(c)
+            except Exception:
+                pass
 
     if not managed_chats:
         text = (
@@ -50,10 +73,13 @@ async def _render_channel_list(client: Client, target, user_id: int, page: int =
             [InlineKeyboardButton(style.btn("Refresh"), callback_data="mchnls_list:1")],
             [InlineKeyboardButton(style.btn("Main Menu"), callback_data="main")],
         ])
-        if isinstance(target, CallbackQuery):
-            await target.message.edit_text(text, reply_markup=markup)
-        else:
-            await target.reply_text(text, reply_markup=markup)
+        try:
+            if isinstance(target, CallbackQuery):
+                await target.message.edit_text(text, reply_markup=markup)
+            else:
+                await target.reply_text(text, reply_markup=markup)
+        except MessageNotModified:
+            pass
         return
 
     page_size = 5
@@ -89,10 +115,16 @@ async def _render_channel_list(client: Client, target, user_id: int, page: int =
     )
     markup = InlineKeyboardMarkup(rows)
 
-    if isinstance(target, CallbackQuery):
-        await target.message.edit_text(text, reply_markup=markup)
-    else:
-        await target.reply_text(text, reply_markup=markup)
+    try:
+        if isinstance(target, CallbackQuery):
+            await target.message.edit_text(text, reply_markup=markup)
+        else:
+            await target.reply_text(text, reply_markup=markup)
+    except MessageNotModified:
+        # Tapped Refresh with nothing changed — already showing the right
+        # thing, nothing to do (previously unhandled, which could leave
+        # the button's loading spinner hanging).
+        pass
 
 
 # ─── Per-Channel Control Center Menu ────────────────────────────────────────
@@ -180,7 +212,12 @@ async def cb_mchnls_chat(client: Client, q: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^mchnls_list:(\d+)$"))
 async def cb_mchnls_list(client: Client, q: CallbackQuery):
     page = int(q.matches[0].group(1))
-    await _render_channel_list(client, q, q.from_user.id, page=page)
+    try:
+        await _render_channel_list(client, q, q.from_user.id, page=page)
+    except Exception as e:
+        LOGGER.error(f"mchnls_list render failed for user {q.from_user.id}: {e}")
+        await q.answer("Something went wrong loading your channels. Try again.", show_alert=True)
+        return
     await q.answer()
 
 

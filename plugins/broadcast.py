@@ -9,9 +9,29 @@ from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineK
 from pyrogram.errors import FloodWait, UserIsBlocked, InputUserDeactivated
 import config
 from database import db
-from helpers import limiter, style
+from helpers import limiter, style, ui, kb
 
 _broadcast_running = False
+
+
+# ─── Broadcast Suite entry point (Main Menu → "Broadcast Suite" button) ─────
+# The button itself is only shown to admins (kb.main in helpers.py), but
+# callback_data can be replayed/forwarded, so the handler re-checks too —
+# was completely unwired before (no handler at all, button did nothing).
+@Client.on_callback_query(filters.regex("^broadcast_menu$"))
+async def cb_broadcast_menu(client: Client, q: CallbackQuery):
+    if not config.is_admin(q.from_user.id):
+        await q.answer("⛔ Admins/owner only.", show_alert=True)
+        return
+    await ui.edit(
+        q.message,
+        f"{style.h('Broadcast Suite')}\n\n"
+        "Reply to any message in this chat with:\n"
+        f"• <code>/broadcast</code> — Copy message with buttons\n"
+        f"• <code>/broadcast -f</code> — Forward original message",
+        reply_markup=kb.back("main"),
+    )
+    await q.answer()
 
 
 @Client.on_message(filters.command("broadcast") & filters.private)
@@ -51,6 +71,7 @@ async def cmd_broadcast(client: Client, msg: Message):
 async def cb_broadcast_start(client: Client, q: CallbackQuery):
     global _broadcast_running
     if not config.is_admin(q.from_user.id):
+        await q.answer("⛔ Admins/owner only.", show_alert=True)
         return
 
     if _broadcast_running:

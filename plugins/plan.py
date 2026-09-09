@@ -32,7 +32,7 @@ async def _render_plan_text(user_id: int) -> str:
     usage = await get_usage(user_id)
     plan_key = usage["plan"]
     plan_info = usage["plan_info"]
-    plan_name = plan_info.get("name", plan_key)
+    plan_name = "Public Access (Free)" if config.PUBLIC_MODE else plan_info.get("name", plan_key)
 
     # Feature checklist
     features_included = PLAN_FEATURES.get(plan_key, set())
@@ -55,9 +55,15 @@ async def _render_plan_text(user_id: int) -> str:
     checklist_str = "\n".join(checklist)
 
     # Usage bars
-    daily_bar = _make_usage_bar(usage["daily"], usage["daily_limit"])
-    weekly_bar = _make_usage_bar(usage["weekly"], usage["weekly_limit"])
-    monthly_bar = _make_usage_bar(usage["monthly"], usage["monthly_limit"])
+    if config.PUBLIC_MODE:
+        unlimited_bar = "██████████ <b>(Unlimited ♾️)</b>"
+        daily_bar = weekly_bar = monthly_bar = unlimited_bar
+        max_channels_str = "Unlimited"
+    else:
+        daily_bar = _make_usage_bar(usage["daily"], usage["daily_limit"])
+        weekly_bar = _make_usage_bar(usage["weekly"], usage["weekly_limit"])
+        monthly_bar = _make_usage_bar(usage["monthly"], usage["monthly_limit"])
+        max_channels_str = plan_info["max_channels"] if plan_info["max_channels"] != -1 else "Unlimited"
 
     # Lifetime approvals
     lifetime_count = usage["lifetime"]
@@ -85,7 +91,7 @@ async def _render_plan_text(user_id: int) -> str:
     return (
         f"{style.h('Your Plan & Usage Center')}\n\n"
         f"⭐ <b>Current Plan:</b> <b>{plan_name}</b> (<code>{plan_key}</code>)\n"
-        f"🏆 <b>Max Channels:</b> {plan_info['max_channels'] if plan_info['max_channels'] != -1 else 'Unlimited'}\n\n"
+        f"🏆 <b>Max Channels:</b> {max_channels_str}\n\n"
         f"{style.h('Usage Metrics')}\n"
         f"• <b>Daily Quota:</b>\n  {daily_bar}\n"
         f"• <b>Weekly Quota:</b>\n  {weekly_bar}\n"

@@ -2,8 +2,9 @@
 plugins/welcome.py — Interactive welcome message, media, and button builder.
 """
 
+import random
 from pyrogram import Client, filters, ContinuePropagation
-from pyrogram.types import CallbackQuery, Message
+from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from database import db
 from helpers import kb, fmt, style, ui
 
@@ -14,6 +15,7 @@ _user_states: dict = {}
 @Client.on_callback_query(filters.regex(r"^welcome:(-?\d+)$"))
 async def cb_welcome_menu(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
+    _user_states.pop(q.from_user.id, None)  # entering the menu cancels any pending text/media/image capture
     cfg = await db.get_chat(chat_id)
     if not cfg:
         await q.answer("Chat not found!", show_alert=True)
@@ -38,6 +40,60 @@ async def cb_welcome_menu(client: Client, q: CallbackQuery):
     )
     await ui.edit(q.message, text, reply_markup=kb.welcome_editor(chat_id, wcfg))
     await q.answer()
+
+
+# ─── Multi-Image Gallery (random pick on each welcome) ──────────────────────
+@Client.on_callback_query(filters.regex(r"^wel_img_menu:(-?\d+)$"))
+async def cb_wel_img_menu(client: Client, q: CallbackQuery):
+    chat_id = int(q.matches[0].group(1))
+    cfg = await db.get_chat(chat_id)
+    if not cfg:
+        await q.answer("Chat not found!", show_alert=True)
+        return
+    wcfg = cfg.get("welcome", {})
+    images = wcfg.get("welcome_images") or []
+
+    rows = [[InlineKeyboardButton(style.btn("➕ Add Images"), callback_data=f"wel_img_add:{chat_id}")]]
+    if images:
+        rows.append([InlineKeyboardButton(style.btn("🗑 Clear All"), callback_data=f"wel_img_clear:{chat_id}")])
+    rows.append([InlineKeyboardButton(style.btn("Back"), callback_data=f"welcome:{chat_id}")])
+
+    await ui.edit(
+        q.message,
+        f"{style.h('Welcome Image Rotation')}\n\n"
+        f"Currently <b>{len(images)}</b> image(s) in rotation — one is picked "
+        f"at random each time someone is welcomed.\n\n"
+        f"<i>If a single \"Attach Media\" file is also set, this rotation takes "
+        f"priority whenever it has at least one image.</i>",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^wel_img_add:(-?\d+)$"))
+async def cb_wel_img_add(client: Client, q: CallbackQuery):
+    chat_id = int(q.matches[0].group(1))
+    _user_states[q.from_user.id] = {"action": "images", "chat_id": chat_id}
+    await ui.edit(
+        q.message,
+        f"{style.h('Send Welcome Images')}\n\n"
+        "Send photos one at a time — each is added to the random rotation. "
+        "Tap Done when finished.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data=f"wel_img_menu:{chat_id}")]]),
+    )
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^wel_img_clear:(-?\d+)$"))
+async def cb_wel_img_clear(client: Client, q: CallbackQuery):
+    chat_id = int(q.matches[0].group(1))
+    cfg = await db.get_chat(chat_id)
+    if cfg:
+        wcfg = cfg.setdefault("welcome", {})
+        wcfg["welcome_images"] = []
+        await db.update_chat_key(chat_id, "welcome", wcfg)
+    await q.answer("Cleared!", show_alert=True)
+    await cb_wel_img_menu(client, q)
 
 
 @Client.on_callback_query(filters.regex(r"^toggle:wel:(-?\d+)$"))
@@ -120,6 +176,10 @@ async def cb_preview_wel(client: Client, q: CallbackQuery):
 
     media_id = wcfg.get("media_id")
     media_type = wcfg.get("media_type")
+    images = wcfg.get("welcome_images") or []
+    if images:
+        media_id = random.choice(images)
+        media_type = "photo"
 
     await q.answer("Sending preview to your PM...")
     try:
@@ -165,6 +225,21 @@ async def welcome_input_handler(client: Client, msg: Message):
         await db.update_chat_key(chat_id, "welcome", wcfg)
         del _user_states[uid]
         await msg.reply_text(f"{style.h('Welcome message text updated')}", reply_markup=kb.welcome_editor(chat_id, wcfg))
+
+    elif action == "images":
+        if not msg.photo:
+            await msg.reply_text(
+                f"{style.h('Please send a photo')} (or tap Done above to finish)."
+            )
+            return
+        wcfg.setdefault("welcome_images", []).append(msg.photo.file_id)
+        await db.update_chat_key(chat_id, "welcome", wcfg)
+        n = len(wcfg["welcome_images"])
+        await msg.reply_text(
+            f"✅ Added — <b>{n}</b> image{'s' if n != 1 else ''} now in rotation. Send another, or tap Done.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data=f"wel_img_menu:{chat_id}")]]),
+        )
+        # Stay in this state so the user can keep sending more photos.
 
     elif action == "media":
         if msg.text and msg.text.strip().lower() == "remove":

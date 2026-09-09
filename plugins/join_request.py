@@ -4,6 +4,7 @@ Manages anti-spam heuristics, CAPTCHA verification gateway, and queued approvals
 """
 
 import asyncio
+import random
 from pyrogram import Client
 from pyrogram.types import ChatJoinRequest
 from pyrogram.errors import FloodWait, UserIsBlocked, PeerIdInvalid, ChatAdminRequired
@@ -38,6 +39,7 @@ def _default_chat_config(chat) -> dict:
             "text": "<b>Welcome {mention}</b>\n\nYour join request to <b>{chat_title}</b> has been approved.",
             "media_id": None,
             "media_type": None,
+            "welcome_images": [],
         },
         "stats": {"approved": 0, "rejected": 0},
     }
@@ -98,6 +100,10 @@ async def _send_welcome_message(client: Client, chat_id: int, user, chat, invite
     
     media_id = wcfg.get("media_id")
     media_type = wcfg.get("media_type")
+    images = wcfg.get("welcome_images") or []
+    if images:
+        media_id = random.choice(images)
+        media_type = "photo"
     target = user.id if wcfg.get("send_pm", True) else chat_id
 
     try:

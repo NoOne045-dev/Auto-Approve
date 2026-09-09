@@ -38,15 +38,31 @@ ENABLE_CAS_CHECK: bool = os.getenv("ENABLE_CAS_CHECK", "true").lower() in ("1", 
 PORT: int = int(os.getenv("PORT", "8080") if os.getenv("PORT", "").strip().isdigit() else 8080)
 
 # ─── Branding ────────────────────────────────────────────────────────────────
-# Photo URL shown on /start (Telegram accepts http/https image URLs).
-START_PIC: str = (os.getenv("START_PIC") or os.getenv("Start_pic") or "").strip()
+# Photo URL(s) shown on /start. Accepts one URL, or several separated by
+# commas/newlines — one is picked at random each time /start runs.
+import re as _re
+_raw_start_pic = (os.getenv("START_PIC") or os.getenv("Start_pic") or "").strip()
+START_PICS: List[str] = [p.strip() for p in _re.split(r"[,\n]+", _raw_start_pic) if p.strip()]
+START_PIC: str = START_PICS[0] if START_PICS else ""  # kept for backward compatibility
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FILE_PATH: str = (os.getenv("LOG_FILE_PATH") or "bot.log").strip()
+
+_log_formatter = logging.Formatter(
+    fmt="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(_log_formatter)
+
+from logging.handlers import RotatingFileHandler
+_file_handler = RotatingFileHandler(LOG_FILE_PATH, maxBytes=5_000_000, backupCount=2, encoding="utf-8")
+_file_handler.setFormatter(_log_formatter)
+
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[_console_handler, _file_handler],
 )
 LOGGER = logging.getLogger("AutoApproveBot")
 

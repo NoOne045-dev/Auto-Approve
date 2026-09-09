@@ -2,6 +2,7 @@
 plugins/start.py — /start, /help, /ping commands and navigation callbacks.
 """
 
+import random
 from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, Message
 import config
@@ -45,7 +46,7 @@ async def cmd_start(client: Client, msg: Message):
             f"Ensure the bot has {style.l('Invite Users via Link')} admin permission.\n"
             f"Use /admin to open the settings control center.",
             reply_markup=kb.main(me.username, is_admin_user),
-            photo=config.START_PIC,
+            photo=random.choice(config.START_PICS) if config.START_PICS else None,
         )
         return
 
@@ -53,7 +54,7 @@ async def cmd_start(client: Client, msg: Message):
         msg,
         _start_caption(user.first_name or "there"),
         reply_markup=kb.main(me.username, is_admin_user),
-        photo=config.START_PIC,
+        photo=random.choice(config.START_PICS) if config.START_PICS else None,
     )
 
 
@@ -130,12 +131,13 @@ async def cb_help(client: Client, q: CallbackQuery):
         f"{style.l('3.')} Send /admin in PM to configure auto-approval, captcha, delay & welcome.\n\n"
         f"{style.h('Commands')}\n"
         "• /start, /plan, /managechnls, /admin — menus\n"
+        "• /defaults — set & apply default settings to all your channels\n"
         "• /approveall [chat_id] [limit] — bulk approve backlog\n"
         "• /queue [chat_id] — live queue & ETA\n"
         "• /schedule, /schedules — scheduled approvals\n"
         "• /login, /logout, /sessions — user session\n"
         "• /stats, /ping — diagnostics\n"
-        "• /broadcast — message all users (admins)"
+        "• /broadcast, /logs — admin tools"
     )
     await ui.edit(q.message, text, reply_markup=kb.back("main"))
     await q.answer()

@@ -330,12 +330,14 @@ class kb:
         en = style.on(wcfg.get("enabled", True))
         pm = style.btn("Direct Message") if wcfg.get("send_pm", True) else style.btn("In Chat")
         has_media = bool(wcfg.get("media_id"))
+        img_count = len(wcfg.get("welcome_images") or [])
 
         return Markup([
             [Btn(f"{style.btn('Status')}  ·  {en}", callback_data=f"toggle:wel:{chat_id}")],
             [Btn(f"{style.btn('Target')}  ·  {pm}", callback_data=f"toggle:wel_pm:{chat_id}")],
             [Btn(style.btn("Edit Welcome Text"), callback_data=f"set_wel_text:{chat_id}")],
             [Btn(style.btn("Change Media") if has_media else style.btn("Attach Media"), callback_data=f"set_wel_media:{chat_id}")],
+            [Btn(f"{style.btn('Welcome Images')}  ·  {img_count} (random pick)", callback_data=f"wel_img_menu:{chat_id}")],
             [Btn(style.btn("Preview Message"), callback_data=f"preview_wel:{chat_id}")],
             [Btn(style.btn("Back to Settings"), callback_data=f"chat:{chat_id}")],
         ])

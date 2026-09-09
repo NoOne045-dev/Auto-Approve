@@ -467,7 +467,7 @@ async def cb_mchnls_upgrade(client: Client, q: CallbackQuery):
         f"Upgrade your channel to <b>PRO</b> or <b>ENTERPRISE</b> tier to unlock goodbye messages, avatar filters, and priority processing!"
     )
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⭐ Contact Owner to Upgrade", url=config.OWNER_CONTACT_URL)],
+        [InlineKeyboardButton("⭐ Contact Owner to Upgrade", url=config.owner_contact_url())],
         [InlineKeyboardButton("🔙 Back to Settings", callback_data=f"mchnls_chat:{chat_id}")],
     ])
     await ui.edit(q.message, text, reply_markup=markup)

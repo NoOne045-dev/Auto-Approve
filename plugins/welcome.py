@@ -42,60 +42,6 @@ async def cb_welcome_menu(client: Client, q: CallbackQuery):
     await q.answer()
 
 
-# ─── Multi-Image Gallery (random pick on each welcome) ──────────────────────
-@Client.on_callback_query(filters.regex(r"^wel_img_menu:(-?\d+)$"))
-async def cb_wel_img_menu(client: Client, q: CallbackQuery):
-    chat_id = int(q.matches[0].group(1))
-    cfg = await db.get_chat(chat_id)
-    if not cfg:
-        await q.answer("Chat not found!", show_alert=True)
-        return
-    wcfg = cfg.get("welcome", {})
-    images = wcfg.get("welcome_images") or []
-
-    rows = [[InlineKeyboardButton(style.btn("➕ Add Images"), callback_data=f"wel_img_add:{chat_id}")]]
-    if images:
-        rows.append([InlineKeyboardButton(style.btn("🗑 Clear All"), callback_data=f"wel_img_clear:{chat_id}")])
-    rows.append([InlineKeyboardButton(style.btn("Back"), callback_data=f"welcome:{chat_id}")])
-
-    await ui.edit(
-        q.message,
-        f"{style.h('Welcome Image Rotation')}\n\n"
-        f"Currently <b>{len(images)}</b> image(s) in rotation — one is picked "
-        f"at random each time someone is welcomed.\n\n"
-        f"<i>If a single \"Attach Media\" file is also set, this rotation takes "
-        f"priority whenever it has at least one image.</i>",
-        reply_markup=InlineKeyboardMarkup(rows),
-    )
-    await q.answer()
-
-
-@Client.on_callback_query(filters.regex(r"^wel_img_add:(-?\d+)$"))
-async def cb_wel_img_add(client: Client, q: CallbackQuery):
-    chat_id = int(q.matches[0].group(1))
-    _user_states[q.from_user.id] = {"action": "images", "chat_id": chat_id}
-    await ui.edit(
-        q.message,
-        f"{style.h('Send Welcome Images')}\n\n"
-        "Send photos one at a time — each is added to the random rotation. "
-        "Tap Done when finished.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data=f"wel_img_menu:{chat_id}")]]),
-    )
-    await q.answer()
-
-
-@Client.on_callback_query(filters.regex(r"^wel_img_clear:(-?\d+)$"))
-async def cb_wel_img_clear(client: Client, q: CallbackQuery):
-    chat_id = int(q.matches[0].group(1))
-    cfg = await db.get_chat(chat_id)
-    if cfg:
-        wcfg = cfg.setdefault("welcome", {})
-        wcfg["welcome_images"] = []
-        await db.update_chat_key(chat_id, "welcome", wcfg)
-    await q.answer("Cleared!", show_alert=True)
-    await cb_wel_img_menu(client, q)
-
-
 @Client.on_callback_query(filters.regex(r"^toggle:wel:(-?\d+)$"))
 async def cb_toggle_wel(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
@@ -144,14 +90,23 @@ async def cb_set_wel_text(client: Client, q: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^set_wel_media:(-?\d+)$"))
 async def cb_set_wel_media(client: Client, q: CallbackQuery):
     chat_id = int(q.matches[0].group(1))
+    cfg = await db.get_chat(chat_id)
+    n = len((cfg or {}).get("welcome", {}).get("welcome_images") or [])
     _user_states[q.from_user.id] = {"action": "media", "chat_id": chat_id}
 
     await ui.edit(
         q.message,
         f"{style.h('Attach Media to Welcome Message')}\n\n"
-        f"Send any {style.l('Photo, Video, GIF/Animation, or Document')} now.\n\n"
-        "<i>To remove existing media, type <code>remove</code>.</i>",
-        reply_markup=kb.cancel(f"welcome:{chat_id}"),
+        f"Send <b>Photos</b> — send as many as you like, one at a time; one is "
+        f"picked at random each time someone is welcomed"
+        f"{f' (<b>{n}</b> already attached)' if n else ''}.\n\n"
+        f"A <b>Video, GIF, or Document</b> can also be attached (single file, "
+        f"replaces any previous one of that kind).\n\n"
+        "<i>Tap Done when finished, or type <code>remove</code> to clear everything.</i>",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Done", callback_data=f"welcome:{chat_id}")],
+            [InlineKeyboardButton(style.btn("Cancel"), callback_data=f"welcome:{chat_id}")],
+        ]),
     )
     await q.answer()
 
@@ -226,36 +181,30 @@ async def welcome_input_handler(client: Client, msg: Message):
         del _user_states[uid]
         await msg.reply_text(f"{style.h('Welcome message text updated')}", reply_markup=kb.welcome_editor(chat_id, wcfg))
 
-    elif action == "images":
-        if not msg.photo:
-            await msg.reply_text(
-                f"{style.h('Please send a photo')} (or tap Done above to finish)."
-            )
-            return
-        wcfg.setdefault("welcome_images", []).append(msg.photo.file_id)
-        await db.update_chat_key(chat_id, "welcome", wcfg)
-        n = len(wcfg["welcome_images"])
-        await msg.reply_text(
-            f"✅ Added — <b>{n}</b> image{'s' if n != 1 else ''} now in rotation. Send another, or tap Done.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data=f"wel_img_menu:{chat_id}")]]),
-        )
-        # Stay in this state so the user can keep sending more photos.
-
     elif action == "media":
         if msg.text and msg.text.strip().lower() == "remove":
             wcfg["media_id"] = None
             wcfg["media_type"] = None
+            wcfg["welcome_images"] = []
             await db.update_chat_key(chat_id, "welcome", wcfg)
             del _user_states[uid]
             await msg.reply_text(f"{style.h('Media removed from welcome message')}", reply_markup=kb.welcome_editor(chat_id, wcfg))
             return
 
+        if msg.photo:
+            wcfg.setdefault("welcome_images", []).append(msg.photo.file_id)
+            await db.update_chat_key(chat_id, "welcome", wcfg)
+            n = len(wcfg["welcome_images"])
+            await msg.reply_text(
+                f"✅ Added — <b>{n}</b> photo{'s' if n != 1 else ''} now in rotation. Send another, or tap Done.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data=f"welcome:{chat_id}")]]),
+            )
+            # Stay in this state so the user can keep sending more photos.
+            return
+
         media_id = None
         media_type = None
-        if msg.photo:
-            media_id = msg.photo.file_id
-            media_type = "photo"
-        elif msg.video:
+        if msg.video:
             media_id = msg.video.file_id
             media_type = "video"
         elif msg.animation:
@@ -274,4 +223,4 @@ async def welcome_input_handler(client: Client, msg: Message):
             del _user_states[uid]
             await msg.reply_text(f"{style.h('Media successfully attached')}", reply_markup=kb.welcome_editor(chat_id, wcfg))
         else:
-            await msg.reply_text(f"{style.h('Send a valid Photo, Video, GIF, or Document')} (or send <code>remove</code>).")
+            await msg.reply_text(f"{style.h('Send a Photo, Video, GIF, or Document')} (or send <code>remove</code>, or tap Done).")

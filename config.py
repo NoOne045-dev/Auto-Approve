@@ -119,3 +119,12 @@ def is_owner(user_id: int) -> bool:
 
 def is_admin(user_id: int) -> bool:
     return is_owner(user_id) or user_id in ADMINS
+
+
+def owner_contact_url() -> str:
+    """
+    tg://user?id=<id> opens a DM with OWNER_ID directly — works even
+    without a public @username and needs no manual URL to edit before
+    commit. Falls back to OWNER_CONTACT_URL only if OWNER_ID isn't set.
+    """
+    return f"tg://user?id={OWNER_ID}" if OWNER_ID else OWNER_CONTACT_URL

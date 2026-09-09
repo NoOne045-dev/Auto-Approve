@@ -4,7 +4,7 @@ plugins/start.py — /start, /help, /ping commands and navigation callbacks.
 
 import random
 from pyrogram import Client, filters
-from pyrogram.types import CallbackQuery, Message
+from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 import config
 from database import db
 from helpers import kb, fmt, style, ui
@@ -145,4 +145,19 @@ async def cb_help(client: Client, q: CallbackQuery):
 
 @Client.on_callback_query(filters.regex("^noop$"))
 async def cb_noop(client: Client, q: CallbackQuery):
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex("^dev_contact$"))
+async def cb_dev_contact(client: Client, q: CallbackQuery):
+    dev_url = config.owner_contact_url()
+    await ui.edit(
+        q.message,
+        f"{style.h('Developer')}\n\n"
+        "Questions, bug reports, or feedback about this bot go straight to the developer.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💬 Message Developer", url=dev_url)],
+            [InlineKeyboardButton(style.btn("Back"), callback_data="main")],
+        ]),
+    )
     await q.answer()

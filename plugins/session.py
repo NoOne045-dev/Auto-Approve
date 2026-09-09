@@ -5,6 +5,7 @@ Implements interactive Telegram account login flow with instant message deletion
 namespaced callbacks, and zero plaintext leakage guarantees.
 """
 
+import asyncio
 import re
 from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -66,6 +67,12 @@ async def _perform_logout(uid: int):
             await temp_client.connect()
             await temp_client.log_out()  # server-side Telegram logout, not just a DB delete
             terminated_live = True
+            # log_out() returning just means Telegram accepted the request —
+            # give their backend a moment to actually finish invalidating it
+            # server-side before we wipe our own copy. If we deleted the DB
+            # record immediately and log_out() had silently not fully taken
+            # effect, there'd be no session string left to retry with.
+            await asyncio.sleep(2)
         except Exception as e:
             LOGGER.warning(f"Live session log_out failed for user {uid}: {e}")
             try:
@@ -97,23 +104,48 @@ async def cmd_login(client: Client, msg: Message):
         )
         return
 
-    # Clean up previous state if any
     await _cleanup_login_state(uid)
-
-    _login_states[uid] = {"step": "phone"}
-
-    markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Cancel Login", callback_data="session:cancel_login")]
-    ])
 
     await msg.reply_text(
         "🔐 <b>Connect Telegram User Session</b>\n\n"
         "Connecting your account enables backlog join request processing.\n\n"
+        "Choose how you'd like to connect:",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📱 Generate New Session", callback_data="session:login_new")],
+            [InlineKeyboardButton("📋 Enter Existing Session String", callback_data="session:login_paste")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")],
+        ]),
+    )
+
+
+@Client.on_callback_query(filters.regex("^session:login_new$"))
+async def cb_session_login_new(client: Client, q: CallbackQuery):
+    uid = q.from_user.id
+    await _cleanup_login_state(uid)
+    _login_states[uid] = {"step": "phone"}
+    await q.message.edit_text(
+        "🔐 <b>Connect Telegram User Session</b>\n\n"
         "📱 <b>Step 1/3:</b> Send your <b>phone number</b> with country code:\n"
         "👉 Example: <code>+1234567890</code>\n\n"
         "🔒 <i>All sensitive messages (phone, OTP, password) are immediately deleted upon receipt.</i>",
-        reply_markup=markup,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Login", callback_data="session:cancel_login")]]),
     )
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex("^session:login_paste$"))
+async def cb_session_login_paste(client: Client, q: CallbackQuery):
+    uid = q.from_user.id
+    await _cleanup_login_state(uid)
+    _login_states[uid] = {"step": "paste_session"}
+    await q.message.edit_text(
+        "📋 <b>Enter Existing Session String</b>\n\n"
+        "Paste your Pyrogram/Kurigram session string now.\n\n"
+        "🔒 <i>Your message is deleted immediately after we read it, and the "
+        "string itself is validated before anything is saved.</i>",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")]]),
+    )
+    await q.answer()
 
 
 # ─── /logout Command ────────────────────────────────────────────────────────
@@ -203,6 +235,59 @@ async def login_input_handler(client: Client, msg: Message):
 
     step = state.get("step")
     raw_input = (msg.text or "").strip()
+
+    # STEP: Paste Existing Session String
+    if step == "paste_session":
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        if not raw_input:
+            await msg.reply_text(
+                "⚠️ <b>Empty message.</b> Paste your session string as text.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="session:cancel_login")]]),
+            )
+            return
+
+        status_msg = await msg.reply_text("⏳ <i>Validating session string...</i>")
+        temp_client = Client(
+            name=f"temp_paste_{uid}",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=raw_input,
+            in_memory=True,
+        )
+        try:
+            await temp_client.connect()
+            me = await temp_client.get_me()
+            phone_number = getattr(me, "phone_number", None) or "imported"
+            await save_session(uid, raw_input, phone_number)
+            _login_states.pop(uid, None)
+            try:
+                if temp_client.is_connected:
+                    await temp_client.disconnect()
+            except Exception:
+                pass
+            await status_msg.edit_text(
+                "✅ <b>Session Connected Successfully</b>\n\n"
+                f"Logged in as <b>{getattr(me, 'first_name', 'your account')}</b>"
+                f"{f' (@{me.username})' if getattr(me, 'username', None) else ''}.\n\n"
+                "Use /sessions to check status anytime, or /logout to disconnect."
+            )
+        except Exception as e:
+            _login_states.pop(uid, None)
+            try:
+                if temp_client.is_connected:
+                    await temp_client.disconnect()
+            except Exception:
+                pass
+            await status_msg.edit_text(
+                f"❌ <b>Invalid or expired session string</b>\n\n"
+                f"<code>{type(e).__name__}: {e}</code>\n\n"
+                "Send /login to try again."
+            )
+        return
 
     # STEP 1: Phone Number
     if step == "phone":

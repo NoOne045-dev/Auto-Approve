@@ -213,16 +213,17 @@ class kb:
                 Btn(style.btn("Add to Group"), url=f"https://t.me/{bot_username}?startgroup=botstart&admin=invite_users+manage_chat"),
             ],
             [
-                Btn(style.btn("My Channels & Groups"), callback_data="chats:1"),
+                Btn(style.btn("My Channels & Groups"), callback_data="mchnls_list:1"),
                 Btn(style.btn("Statistics"), callback_data="global_stats"),
             ],
             [
                 Btn(style.btn("Help & Setup"), callback_data="help"),
-                Btn(style.btn("Manage Settings"), callback_data="mchnls_list:1"),
+                Btn(style.btn("Manage Settings"), callback_data="udef_open"),
             ],
         ]
         if is_admin_user:
             rows.append([Btn(style.btn("Broadcast Suite"), callback_data="broadcast_menu")])
+        rows.append([Btn(style.btn("👨‍💻 DEV"), callback_data="dev_contact")])
         return Markup(rows)
 
     @staticmethod
@@ -329,15 +330,20 @@ class kb:
     def welcome_editor(chat_id: int, wcfg: dict) -> Markup:
         en = style.on(wcfg.get("enabled", True))
         pm = style.btn("Direct Message") if wcfg.get("send_pm", True) else style.btn("In Chat")
-        has_media = bool(wcfg.get("media_id"))
         img_count = len(wcfg.get("welcome_images") or [])
+        has_other_media = bool(wcfg.get("media_id"))
+        if img_count:
+            media_label = f"{style.btn('Media')}  ·  {img_count} photo{'s' if img_count != 1 else ''} (random)"
+        elif has_other_media:
+            media_label = f"{style.btn('Media')}  ·  1 file"
+        else:
+            media_label = style.btn("Attach Media")
 
         return Markup([
             [Btn(f"{style.btn('Status')}  ·  {en}", callback_data=f"toggle:wel:{chat_id}")],
             [Btn(f"{style.btn('Target')}  ·  {pm}", callback_data=f"toggle:wel_pm:{chat_id}")],
             [Btn(style.btn("Edit Welcome Text"), callback_data=f"set_wel_text:{chat_id}")],
-            [Btn(style.btn("Change Media") if has_media else style.btn("Attach Media"), callback_data=f"set_wel_media:{chat_id}")],
-            [Btn(f"{style.btn('Welcome Images')}  ·  {img_count} (random pick)", callback_data=f"wel_img_menu:{chat_id}")],
+            [Btn(media_label, callback_data=f"set_wel_media:{chat_id}")],
             [Btn(style.btn("Preview Message"), callback_data=f"preview_wel:{chat_id}")],
             [Btn(style.btn("Back to Settings"), callback_data=f"chat:{chat_id}")],
         ])

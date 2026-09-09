@@ -87,6 +87,14 @@ async def cmd_defaults(client: Client, msg: Message):
     await msg.reply_text(_render_text(d), reply_markup=_markup(d))
 
 
+@Client.on_callback_query(filters.regex("^udef_open$"))
+async def cb_udef_open(client: Client, q: CallbackQuery):
+    uid = q.from_user.id
+    d = await get_user_defaults(uid)
+    await ui.edit(q.message, _render_text(d), reply_markup=_markup(d))
+    await q.answer()
+
+
 @Client.on_callback_query(filters.regex(r"^udef_tgl:(aa|cap|pfp|cas)$"))
 async def cb_udef_toggle(client: Client, q: CallbackQuery):
     uid = q.from_user.id

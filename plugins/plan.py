@@ -152,7 +152,7 @@ async def cb_plan_upgrade(client: Client, q: CallbackQuery):
         "Contact the master bot administrator to upgrade your account instantly."
     )
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💬 Contact Owner to Upgrade", url=config.OWNER_CONTACT_URL)],
+        [InlineKeyboardButton("💬 Contact Owner to Upgrade", url=config.owner_contact_url())],
         [InlineKeyboardButton("🔙 Back to Plan", callback_data="plan_refresh")],
     ])
     await ui.edit(q.message, text, reply_markup=markup)

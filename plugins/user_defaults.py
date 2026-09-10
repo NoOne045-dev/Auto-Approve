@@ -10,8 +10,9 @@ already connects with — kept independent of database.py's internals
 (never reviewed) so this can't collide with or break anything there.
 """
 
+import asyncio
 from typing import Optional
-from pyrogram import Client, filters
+from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from motor.motor_asyncio import AsyncIOMotorClient
 import config
@@ -29,7 +30,11 @@ _DEFAULT_TEMPLATE = {
     "delay": 0,
     "require_pfp": False,
     "cas_check": True,
+    "welcome_images": [],
 }
+
+_img_collecting: set = set()  # user_ids currently sending default welcome images
+_img_locks: dict = {}
 
 
 async def get_user_defaults(user_id: int) -> dict:
@@ -51,6 +56,7 @@ async def set_user_defaults(user_id: int, defaults: dict):
 
 def _render_text(d: dict) -> str:
     delay_str = f"{d['delay']}s"
+    img_count = len(d.get("welcome_images") or [])
     return (
         f"{style.h('Your Default Channel Settings')}\n\n"
         "This template is yours — set it once, then push it to every "
@@ -59,7 +65,8 @@ def _render_text(d: dict) -> str:
         f"• {style.kv('Captcha', style.on(d['captcha']))}\n"
         f"• {style.kv('Approval Delay', delay_str)}\n"
         f"• {style.kv('Require Avatar', style.on(d['require_pfp']))}\n"
-        f"• {style.kv('Anti-Spam CAS', style.on(d['cas_check']))}\n\n"
+        f"• {style.kv('Anti-Spam CAS', style.on(d['cas_check']))}\n"
+        f"• {style.kv('Welcome Images', f'{img_count} (random pick)')}\n\n"
         "<i>Toggle below, then tap Apply to overwrite these on all your channels.</i>"
     )
 
@@ -75,6 +82,7 @@ def _markup(d: dict) -> InlineKeyboardMarkup:
             InlineKeyboardButton(f"{style.btn('Anti-Spam CAS')} · {style.on(d['cas_check'])}", callback_data="udef_tgl:cas"),
         ],
         [InlineKeyboardButton(style.btn(f"Delay: {d['delay']}s (tap to cycle)"), callback_data="udef_delay")],
+        [InlineKeyboardButton(f"🖼 Welcome Images ({len(d.get('welcome_images') or [])})", callback_data="udef_img_menu")],
         [InlineKeyboardButton("📤 Apply to All My Channels", callback_data="udef_apply_confirm")],
         [InlineKeyboardButton(style.btn("Main Menu"), callback_data="main")],
     ])
@@ -90,6 +98,7 @@ async def cmd_defaults(client: Client, msg: Message):
 @Client.on_callback_query(filters.regex("^udef_open$"))
 async def cb_udef_open(client: Client, q: CallbackQuery):
     uid = q.from_user.id
+    _img_collecting.discard(uid)
     d = await get_user_defaults(uid)
     await ui.edit(q.message, _render_text(d), reply_markup=_markup(d))
     await q.answer()
@@ -122,6 +131,71 @@ async def cb_udef_delay(client: Client, q: CallbackQuery):
     await q.answer(f"Delay set to {d['delay']}s")
 
 
+@Client.on_callback_query(filters.regex("^udef_img_menu$"))
+async def cb_udef_img_menu(client: Client, q: CallbackQuery):
+    uid = q.from_user.id
+    d = await get_user_defaults(uid)
+    images = d.get("welcome_images") or []
+    rows = [[InlineKeyboardButton(style.btn("➕ Add Images"), callback_data="udef_img_add")]]
+    if images:
+        rows.append([InlineKeyboardButton(style.btn("🗑 Clear All"), callback_data="udef_img_clear")])
+    rows.append([InlineKeyboardButton(style.btn("Back"), callback_data="udef_open")])
+    await ui.edit(
+        q.message,
+        f"{style.h('Default Welcome Images')}\n\n"
+        f"Currently <b>{len(images)}</b> image(s) — pushed to every channel's "
+        f"welcome-image rotation when you tap Apply to All.",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex("^udef_img_add$"))
+async def cb_udef_img_add(client: Client, q: CallbackQuery):
+    uid = q.from_user.id
+    _img_collecting.add(uid)
+    await ui.edit(
+        q.message,
+        f"{style.h('Send Default Welcome Images')}\n\n"
+        "Send photos one at a time. Tap Done when finished.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data="udef_img_menu")]]),
+    )
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex("^udef_img_clear$"))
+async def cb_udef_img_clear(client: Client, q: CallbackQuery):
+    uid = q.from_user.id
+    d = await get_user_defaults(uid)
+    d["welcome_images"] = []
+    await set_user_defaults(uid, d)
+    await q.answer("Cleared!", show_alert=True)
+    await cb_udef_img_menu(client, q)
+
+
+# ─── Catch-all: collects default welcome-image photos ──────────────────────
+# Part of the same private-message chain as managechnls/schedule/session/
+# welcome — must raise ContinuePropagation when not our business so those
+# still get a turn (see chat_added.py / schedule.py / session.py / welcome.py
+# for the same pattern; registration order is alphabetical by filename).
+@Client.on_message(filters.private & filters.photo)
+async def udef_image_collector(client: Client, msg: Message):
+    uid = msg.from_user.id
+    if uid not in _img_collecting:
+        raise ContinuePropagation
+
+    lock = _img_locks.setdefault(uid, asyncio.Lock())
+    async with lock:
+        d = await get_user_defaults(uid)
+        d.setdefault("welcome_images", []).append(msg.photo.file_id)
+        await set_user_defaults(uid, d)
+        n = len(d["welcome_images"])
+    await msg.reply_text(
+        f"✅ Added — <b>{n}</b> image{'s' if n != 1 else ''}. Send another, or tap Done.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data="udef_img_menu")]]),
+    )
+
+
 @Client.on_callback_query(filters.regex("^udef_apply_confirm$"))
 async def cb_udef_apply_confirm(client: Client, q: CallbackQuery):
     uid = q.from_user.id
@@ -134,9 +208,9 @@ async def cb_udef_apply_confirm(client: Client, q: CallbackQuery):
     await ui.edit(
         q.message,
         f"{style.h('Confirm Overwrite')}\n\n"
-        f"This will overwrite auto-approve, captcha, delay, avatar filter, and "
-        f"CAS filter on <b>{len(chats)}</b> channel(s) you manage — welcome "
-        f"messages and images are left untouched.\n\nProceed?",
+        f"This will overwrite auto-approve, captcha, delay, avatar filter, "
+        f"CAS filter, and welcome images on <b>{len(chats)}</b> channel(s) you "
+        f"manage — welcome text is left untouched.\n\nProceed?",
         reply_markup=InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("✅ Yes, Apply to All", callback_data="udef_apply_go"),
@@ -172,6 +246,10 @@ async def cb_udef_apply_go(client: Client, q: CallbackQuery):
             filters_d["require_pfp"] = d["require_pfp"]
             filters_d["cas_check"] = d["cas_check"]
             await db.update_chat_key(chat_id, "filters", filters_d)
+            if d.get("welcome_images"):
+                wcfg = c.get("welcome", {})
+                wcfg["welcome_images"] = list(d["welcome_images"])
+                await db.update_chat_key(chat_id, "welcome", wcfg)
             invalidate_chat(chat_id)
             applied += 1
         except Exception as e:

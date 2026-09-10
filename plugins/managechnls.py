@@ -5,6 +5,7 @@ Wraps admin toggles, welcome media/button editor, goodbye message builder,
 live previews, premium feature gates, and cached channel listings.
 """
 
+import asyncio
 from typing import Dict, Optional
 from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -190,6 +191,11 @@ async def cb_mchnls_chat(client: Client, q: CallbackQuery):
             InlineKeyboardButton("👁️ Live Preview Goodbye", callback_data=f"mchnls_prev:gb:{chat_id}"),
         ],
         [
+            InlineKeyboardButton(style.btn("Backlog Actions"), callback_data=f"mass:{chat_id}"),
+            InlineKeyboardButton(style.btn("Analytics"), callback_data=f"chat_stats:{chat_id}"),
+        ],
+        [InlineKeyboardButton("🗑 Remove Chat", callback_data=f"mchnls_del_confirm:{chat_id}")],
+        [
             InlineKeyboardButton(style.btn("Back to Channels"), callback_data="mchnls_list:1"),
         ],
     ]
@@ -271,6 +277,41 @@ async def cb_mchnls_delay_set(client: Client, q: CallbackQuery):
     await cb_mchnls_chat(client, q)
 
 
+# ─── Remove Chat ─────────────────────────────────────────────────────────────
+@Client.on_callback_query(filters.regex(r"^mchnls_del_confirm:(-?\d+)$"))
+async def cb_mchnls_del_confirm(client: Client, q: CallbackQuery):
+    chat_id = int(q.matches[0].group(1))
+    if not await can_manage_chat(q.from_user.id, chat_id, client):
+        await q.answer("❌ Access Denied.", show_alert=True)
+        return
+    await ui.edit(
+        q.message,
+        f"{style.h('Remove This Chat?')}\n\n"
+        f"<code>{chat_id}</code> will stop being managed — auto-approval, "
+        f"welcome messages, and captcha stop for it. This can't be undone "
+        f"(the bot will just re-add it fresh if a new join request arrives).",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Yes, Remove", callback_data=f"mchnls_del_go:{chat_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"mchnls_chat:{chat_id}"),
+            ]
+        ]),
+    )
+    await q.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^mchnls_del_go:(-?\d+)$"))
+async def cb_mchnls_del_go(client: Client, q: CallbackQuery):
+    chat_id = int(q.matches[0].group(1))
+    if not await can_manage_chat(q.from_user.id, chat_id, client):
+        await q.answer("❌ Access Denied.", show_alert=True)
+        return
+    await db.delete_chat(chat_id)
+    invalidate_chat(chat_id)
+    await q.answer("Chat removed from bot management.", show_alert=True)
+    await _render_channel_list(client, q, q.from_user.id, page=1)
+
+
 # ─── Setting Toggles ────────────────────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r"^mchnls_tgl:(aa|cap|pfp|cas):(-?\d+)$"))
 async def cb_mchnls_tgl(client: Client, q: CallbackQuery):
@@ -328,13 +369,20 @@ async def cb_mchnls_wel(client: Client, q: CallbackQuery):
     cur_text = wcfg.get("text", DEFAULT_WELCOME)
     en = style.on(wcfg.get("enabled", True))
     pm = style.btn("Direct Message") if wcfg.get("send_pm", True) else style.btn("In Chat")
-    has_media = bool(wcfg.get("media_id"))
+    img_count = len(wcfg.get("welcome_images") or [])
+    has_other_media = bool(wcfg.get("media_id"))
+    if img_count:
+        media_label = f"{style.btn('Media')}  ·  {img_count} photo{'s' if img_count != 1 else ''} (random)"
+    elif has_other_media:
+        media_label = f"{style.btn('Media')}  ·  1 file"
+    else:
+        media_label = style.btn("Attach Media")
 
     rows = [
         [InlineKeyboardButton(f"{style.btn('Status')}  ·  {en}", callback_data=f"mchnls_tgl_wel:{chat_id}")],
         [InlineKeyboardButton(f"{style.btn('Target')}  ·  {pm}", callback_data=f"mchnls_tgl_wel_pm:{chat_id}")],
         [InlineKeyboardButton(style.btn("Edit Welcome Text"), callback_data=f"mchnls_edit_txt:welcome:{chat_id}")],
-        [InlineKeyboardButton(style.btn("Change Media") if has_media else style.btn("Attach Media"), callback_data=f"mchnls_edit_med:welcome:{chat_id}")],
+        [InlineKeyboardButton(media_label, callback_data=f"mchnls_edit_med:welcome:{chat_id}")],
         [InlineKeyboardButton("👁️ Live Preview Message", callback_data=f"mchnls_prev:wel:{chat_id}")],
         [InlineKeyboardButton(style.btn("Back to Control Center"), callback_data=f"mchnls_chat:{chat_id}")],
     ]
@@ -507,6 +555,12 @@ async def cb_mchnls_preview(client: Client, q: CallbackQuery):
 
     media_id = mcfg.get("media_id")
     media_type = mcfg.get("media_type")
+    if kind == "wel":
+        images = mcfg.get("welcome_images") or []
+        if images:
+            import random
+            media_id = random.choice(images)
+            media_type = "photo"
 
     await q.answer(f"Sending live {label.lower()} preview to your DM...")
     try:
@@ -564,14 +618,33 @@ async def cb_mchnls_edit_med(client: Client, q: CallbackQuery):
     _editor_states[uid] = {"action": "media", "kind": kind, "chat_id": chat_id}
 
     target_cb = f"mchnls_wel:{chat_id}" if kind == "welcome" else f"mchnls_gb:{chat_id}"
-    await ui.edit(
-        q.message,
-        f"{style.h(f'Attach Media to {kind.title()} Message')}\n\n"
-        "Send any Photo, Video, GIF/Animation, or Document now.\n\n"
-        "<i>To remove existing media, type <code>remove</code>.</i>",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=target_cb)]]),
-    )
+    if kind == "welcome":
+        cfg = await get_cached_chat(chat_id, db.get_chat) or {}
+        n = len(cfg.get("welcome", {}).get("welcome_images") or [])
+        body = (
+            f"Send <b>Photos</b> — send as many as you like, one at a time; one is "
+            f"picked at random each time someone is welcomed"
+            f"{f' (<b>{n}</b> already attached)' if n else ''}.\n\n"
+            "A <b>Video, GIF, or Document</b> can also be attached (single file, "
+            "replaces any previous one of that kind).\n\n"
+            "<i>Tap Done when finished, or type <code>remove</code> to clear everything.</i>"
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Done", callback_data=target_cb)],
+            [InlineKeyboardButton("❌ Cancel", callback_data=target_cb)],
+        ])
+    else:
+        body = (
+            "Send any Photo, Video, GIF/Animation, or Document now.\n\n"
+            "<i>To remove existing media, type <code>remove</code>.</i>"
+        )
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=target_cb)]])
+
+    await ui.edit(q.message, f"{style.h(f'Attach Media to {kind.title()} Message')}\n\n{body}", reply_markup=markup)
     await q.answer()
+
+
+_media_locks: dict = {}  # serializes welcome_images read-modify-write per user
 
 
 # ─── Private Message Listener for Text/Media Input ─────────────────────────
@@ -588,7 +661,7 @@ async def mchnls_input_handler(client: Client, msg: Message):
     state = _editor_states.get(uid)
     if not state:
         # Not our flow — let it fall through to the next plugin's catch-all
-        # (schedule.py / session.py / welcome.py) instead of eating it.
+        # (schedule.py / session.py) instead of eating it.
         raise ContinuePropagation
 
     action = state["action"]
@@ -612,23 +685,46 @@ async def mchnls_input_handler(client: Client, msg: Message):
         )
 
     elif action == "media":
+        back_cb = f"mchnls_wel:{chat_id}" if kind == "welcome" else f"mchnls_gb:{chat_id}"
+
         if msg.text and msg.text.strip().lower() == "remove":
             mcfg["media_id"] = None
             mcfg["media_type"] = None
+            if kind == "welcome":
+                mcfg["welcome_images"] = []
             await db.update_chat_key(chat_id, kind, mcfg)
             invalidate_chat(chat_id)
             del _editor_states[uid]
-
-            back_cb = f"mchnls_wel:{chat_id}" if kind == "welcome" else f"mchnls_gb:{chat_id}"
             await msg.reply_text(
                 f"{style.h(f'Media removed from {kind} message.')}",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Editor", callback_data=back_cb)]]),
             )
             return
 
+        # Welcome photos: multi-image rotation, stays in state for more.
+        # Locked to prevent lost updates when several photos arrive close
+        # together (e.g. sent as an album) — without this, two near-
+        # simultaneous saves can race and the second silently overwrites
+        # the first's addition, which looked like "only one ever saves".
+        if kind == "welcome" and msg.photo:
+            lock = _media_locks.setdefault(uid, asyncio.Lock())
+            async with lock:
+                fresh_cfg = await get_cached_chat(chat_id, db.get_chat) or {"chat_id": chat_id}
+                fresh_mcfg = fresh_cfg.setdefault("welcome", {})
+                fresh_mcfg.setdefault("welcome_images", []).append(msg.photo.file_id)
+                await db.update_chat_key(chat_id, "welcome", fresh_mcfg)
+                invalidate_chat(chat_id)
+                n = len(fresh_mcfg["welcome_images"])
+            await msg.reply_text(
+                f"✅ Added — <b>{n}</b> photo{'s' if n != 1 else ''} now in rotation. Send another, or tap Done.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data=back_cb)]]),
+            )
+            # Stay in this state so the user can keep sending more photos.
+            return
+
         media_id = None
         media_type = None
-        if msg.photo:
+        if kind == "goodbye" and msg.photo:
             media_id = msg.photo.file_id
             media_type = "photo"
         elif msg.video:
@@ -649,11 +745,9 @@ async def mchnls_input_handler(client: Client, msg: Message):
             await db.update_chat_key(chat_id, kind, mcfg)
             invalidate_chat(chat_id)
             del _editor_states[uid]
-
-            back_cb = f"mchnls_wel:{chat_id}" if kind == "welcome" else f"mchnls_gb:{chat_id}"
             await msg.reply_text(
                 f"{style.h(f'Media attached to {kind} message!')}",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Editor", callback_data=back_cb)]]),
             )
         else:
-            await msg.reply_text("⚠️ Please send a valid Photo, Video, GIF, or Document (or type <code>remove</code>).")
+            await msg.reply_text("⚠️ Please send a valid Photo, Video, GIF, or Document (or type <code>remove</code>, or tap Done).")

@@ -110,7 +110,7 @@ async def cb_chat_stats(client: Client, q: CallbackQuery):
         f"{style.kv('Approval Rate', f'{rate:.1f}%')}"
     )
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton(style.btn("Back to Chat"), callback_data=f"chat:{chat_id}")]
+        [InlineKeyboardButton(style.btn("Back to Chat"), callback_data=f"mchnls_chat:{chat_id}")]
     ])
     await ui.edit(q.message, text, reply_markup=markup)
     await q.answer()

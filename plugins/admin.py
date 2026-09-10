@@ -1,120 +1,189 @@
 """
-plugins/admin.py — Interactive channel settings control center.
-Handles toggles, delays, filters, and channel deletion.
+plugins/admin.py — Bot-admin/owner moderation & configuration toolkit.
+
+The old per-chat settings screen that used to live here (chat:, toggle:,
+set_delay:, delay:, del_chat:) is retired — managechnls.py's Unified
+Channel Control Center (mchnls_chat:, mchnls_tgl:, mchnls_delay:,
+mchnls_del_confirm:) fully replaced it, and /admin duplicated /managechnls.
+This file is now: /ban, /unban, /banlist, /fsub (force-subscribe gate).
+
+Storage: two small, self-contained Motor collections ("banned_users",
+"fsub_channels") using the same config.MONGO_URL / config.DATABASE_NAME the
+rest of the bot connects with — kept independent of database.py's internals
+(never reviewed) so this can't collide with or break anything there.
 """
 
 from pyrogram import Client, filters
-from pyrogram.types import CallbackQuery
+from pyrogram.types import Message
+from pyrogram.errors import RPCError
+from motor.motor_asyncio import AsyncIOMotorClient
 import config
-from database import db
-from helpers import kb, fmt, style, ui
+from config import LOGGER
+from helpers import style
+
+_mongo = AsyncIOMotorClient(config.MONGO_URL)
+_banned_col = _mongo[config.DATABASE_NAME]["banned_users"]
+_fsub_col = _mongo[config.DATABASE_NAME]["fsub_channels"]
 
 
-# ─── Single Chat Settings View ──────────────────────────────────────────────
-@Client.on_callback_query(filters.regex(r"^chat:(-?\d+)$"))
-async def cb_chat(client: Client, q: CallbackQuery):
-    chat_id = int(q.matches[0].group(1))
-    cfg = await db.get_chat(chat_id)
-    if not cfg:
-        await q.answer("Chat not found in database!", show_alert=True)
+# ─── Shared helpers (also used by join_request.py's approval gate) ─────────
+async def is_banned(user_id: int) -> bool:
+    return bool(await _banned_col.find_one({"user_id": user_id}))
+
+
+async def ban_user(user_id: int, banned_by: int, reason: str = ""):
+    await _banned_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"user_id": user_id, "banned_by": banned_by, "reason": reason}},
+        upsert=True,
+    )
+
+
+async def unban_user(user_id: int) -> bool:
+    res = await _banned_col.delete_one({"user_id": user_id})
+    return res.deleted_count > 0
+
+
+async def list_banned() -> list:
+    return [d async for d in _banned_col.find({})]
+
+
+async def get_fsub_channels() -> list:
+    return [d async for d in _fsub_col.find({})]
+
+
+async def add_fsub_channel(chat_id: int, title: str, invite_link: str = ""):
+    await _fsub_col.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"chat_id": chat_id, "title": title, "invite_link": invite_link}},
+        upsert=True,
+    )
+
+
+async def remove_fsub_channel(chat_id: int) -> bool:
+    res = await _fsub_col.delete_one({"chat_id": chat_id})
+    return res.deleted_count > 0
+
+
+async def check_fsub(client: Client, user_id: int) -> list:
+    """Return the fsub channels the user is NOT a member of (empty list = passes)."""
+    channels = await get_fsub_channels()
+    missing = []
+    for ch in channels:
+        try:
+            member = await client.get_chat_member(ch["chat_id"], user_id)
+            if member.status in ("left", "banned", "kicked"):
+                missing.append(ch)
+        except RPCError:
+            missing.append(ch)
+        except Exception:
+            pass
+    return missing
+
+
+# ─── /ban ────────────────────────────────────────────────────────────────────
+@Client.on_message(filters.command("ban") & filters.private)
+async def cmd_ban(client: Client, msg: Message):
+    if not config.is_admin(msg.from_user.id):
+        return
+    args = msg.command[1:]
+    if not args or not args[0].lstrip("-").isdigit():
+        await msg.reply_text(f"{style.h('Usage')}\n<code>/ban &lt;user_id&gt; [reason]</code>")
+        return
+    target_id = int(args[0])
+    reason = " ".join(args[1:]) if len(args) > 1 else ""
+    await ban_user(target_id, msg.from_user.id, reason)
+    await msg.reply_text(
+        f"{style.h('User Banned')}\n\n"
+        f"<code>{target_id}</code> will be auto-declined on every future join request across all channels."
+        + (f"\n{style.kv('Reason', reason)}" if reason else "")
+    )
+
+
+@Client.on_message(filters.command("unban") & filters.private)
+async def cmd_unban(client: Client, msg: Message):
+    if not config.is_admin(msg.from_user.id):
+        return
+    args = msg.command[1:]
+    if not args or not args[0].lstrip("-").isdigit():
+        await msg.reply_text(f"{style.h('Usage')}\n<code>/unban &lt;user_id&gt;</code>")
+        return
+    target_id = int(args[0])
+    removed = await unban_user(target_id)
+    await msg.reply_text(
+        f"{style.h('User Unbanned')} <code>{target_id}</code>" if removed
+        else f"{style.h('Not Banned')} — <code>{target_id}</code> wasn't on the ban list."
+    )
+
+
+@Client.on_message(filters.command(["banlist", "banned"]) & filters.private)
+async def cmd_banlist(client: Client, msg: Message):
+    if not config.is_admin(msg.from_user.id):
+        return
+    banned = await list_banned()
+    if not banned:
+        await msg.reply_text(f"{style.h('Ban List')}\n\nNo users are currently banned.")
+        return
+    lines = [f"{style.h(f'Ban List ({len(banned)})')}\n"]
+    for b in banned[:50]:
+        reason = f" — {b['reason']}" if b.get("reason") else ""
+        lines.append(f"• <code>{b['user_id']}</code>{reason}")
+    if len(banned) > 50:
+        lines.append(f"\n<i>...and {len(banned) - 50} more.</i>")
+    await msg.reply_text("\n".join(lines))
+
+
+# ─── /fsub — force-subscribe gate ───────────────────────────────────────────
+@Client.on_message(filters.command("fsub") & filters.private)
+async def cmd_fsub(client: Client, msg: Message):
+    if not config.is_admin(msg.from_user.id):
+        return
+    args = msg.command[1:]
+
+    if not args or args[0].lower() not in ("add", "remove", "del", "list"):
+        await msg.reply_text(
+            f"{style.h('Force-Subscribe Gate')}\n\n"
+            "Users must be a member of every fsub channel below before any "
+            "of their join requests get auto-approved, anywhere.\n\n"
+            f"{style.l('Usage')}\n"
+            "• <code>/fsub add &lt;channel_id&gt;</code>\n"
+            "• <code>/fsub remove &lt;channel_id&gt;</code>\n"
+            "• <code>/fsub list</code>\n\n"
+            "<i>The bot must already be an admin of the fsub channel to check membership.</i>"
+        )
         return
 
-    title = cfg.get("title", f"Chat {chat_id}")
-    stats = cfg.get("stats", {})
-    approved = stats.get("approved", 0)
-    rejected = stats.get("rejected", 0)
+    action = args[0].lower()
 
-    text = (
-        f"{style.h('Settings')} — <b>{fmt.escape(title)}</b>\n"
-        f"<code>{chat_id}</code>\n\n"
-        f"{style.h('Quick Stats')}\n"
-        f"• {style.kv('Approved', f'<b>{approved:,}</b>')}\n"
-        f"• {style.kv('Rejected', f'<b>{rejected:,}</b>')}\n\n"
-        f"<i>Toggle options below to customize behavior.</i>"
-    )
-    await ui.edit(q.message, text, reply_markup=kb.chat_settings(chat_id, cfg))
-    await q.answer()
-
-
-# ─── Toggle Switches ────────────────────────────────────────────────────────
-@Client.on_callback_query(filters.regex(r"^toggle:(aa|cap|pfp|cas):(-?\d+)$"))
-async def cb_toggle(client: Client, q: CallbackQuery):
-    key = q.matches[0].group(1)
-    chat_id = int(q.matches[0].group(2))
-    cfg = await db.get_chat(chat_id)
-    if not cfg:
-        await q.answer("Chat not found!", show_alert=True)
+    if action == "list":
+        channels = await get_fsub_channels()
+        if not channels:
+            await msg.reply_text(f"{style.h('Force-Subscribe Channels')}\n\nNone configured.")
+            return
+        lines = [f"{style.h(f'Force-Subscribe Channels ({len(channels)})')}\n"]
+        for ch in channels:
+            lines.append(f"• {ch.get('title', 'Unknown')} — <code>{ch['chat_id']}</code>")
+        await msg.reply_text("\n".join(lines))
         return
 
-    labels = {
-        "aa": "Auto-Approval",
-        "cap": "Captcha Verification",
-        "pfp": "Require Profile Photo",
-        "cas": "CAS Anti-Spam Check",
-    }
+    if len(args) < 2 or not args[1].lstrip("-").isdigit():
+        await msg.reply_text(f"{style.h('Usage')}\n<code>/fsub {action} &lt;channel_id&gt;</code>")
+        return
 
-    if key == "aa":
-        new_val = not cfg.get("auto_approve", True)
-        cfg["auto_approve"] = new_val
-        await db.update_chat_key(chat_id, "auto_approve", new_val)
-    elif key == "cap":
-        new_val = not cfg.get("captcha", False)
-        cfg["captcha"] = new_val
-        await db.update_chat_key(chat_id, "captcha", new_val)
-    elif key in ("pfp", "cas"):
-        filters_d = cfg.setdefault("filters", {})
-        target_key = "require_pfp" if key == "pfp" else "cas_check"
-        new_val = not filters_d.get(target_key, True if key == "cas" else False)
-        filters_d[target_key] = new_val
-        await db.update_chat_key(chat_id, "filters", filters_d)
+    chat_id = int(args[1])
 
-    status_str = "ON" if new_val else "OFF"
-    await q.answer(f"{labels[key]}: {status_str}")
-    await q.message.edit_reply_markup(reply_markup=kb.chat_settings(chat_id, cfg))
-
-
-# ─── Delay Picker ───────────────────────────────────────────────────────────
-@Client.on_callback_query(filters.regex(r"^set_delay:(-?\d+)$"))
-async def cb_set_delay(client: Client, q: CallbackQuery):
-    chat_id = int(q.matches[0].group(1))
-    await ui.edit(
-        q.message,
-        f"{style.h('Select Auto-Approval Delay')}\n\n"
-        "Configure how long the bot waits before approving a join request.\n"
-        "<i>A short delay mimics human admin timing and reduces bot-detection noise.</i>",
-        reply_markup=kb.delay_picker(chat_id),
-    )
-    await q.answer()
-
-
-@Client.on_callback_query(filters.regex(r"^delay:(-?\d+):(\d+)$"))
-async def cb_apply_delay(client: Client, q: CallbackQuery):
-    chat_id = int(query_chat_id := q.matches[0].group(1))
-    delay = int(q.matches[0].group(2))
-    
-    await db.update_chat_key(chat_id, "delay", delay)
-    cfg = await db.get_chat(chat_id)
-    
-    await q.answer(f"Delay set to {delay} seconds!", show_alert=True)
-    title = cfg.get("title", f"Chat {chat_id}")
-    await ui.edit(
-        q.message,
-        f"{style.h('Settings')} — <b>{fmt.escape(title)}</b>\n<code>{chat_id}</code>",
-        reply_markup=kb.chat_settings(chat_id, cfg),
-    )
-
-
-# ─── Delete / Remove Chat ───────────────────────────────────────────────────
-@Client.on_callback_query(filters.regex(r"^del_chat:(-?\d+)$"))
-async def cb_del_chat(client: Client, q: CallbackQuery):
-    chat_id = int(q.matches[0].group(1))
-    await db.delete_chat(chat_id)
-    await q.answer("Chat removed from bot management.", show_alert=True)
-
-    uid = q.from_user.id
-    chats = await db.all_chats(owner_id=uid if not config.is_admin(uid) else None)
-    await ui.edit(
-        q.message,
-        f"{style.h(f'Managed Chats ({len(chats)} Total)')}",
-        reply_markup=kb.chat_list(chats, page=1),
-    )
+    if action == "add":
+        try:
+            chat = await client.get_chat(chat_id)
+            title = chat.title or str(chat_id)
+        except Exception as e:
+            await msg.reply_text(f"{style.h('Could not resolve chat')} <code>{chat_id}</code>: {e}")
+            return
+        await add_fsub_channel(chat_id, title)
+        await msg.reply_text(f"{style.h('Force-Subscribe Channel Added')}\n\n{style.kv('Channel', title)}\n<code>{chat_id}</code>")
+    else:  # remove / del
+        removed = await remove_fsub_channel(chat_id)
+        await msg.reply_text(
+            f"{style.h('Removed')} <code>{chat_id}</code>" if removed
+            else f"{style.h('Not Found')} — <code>{chat_id}</code> wasn't in the fsub list."
+        )

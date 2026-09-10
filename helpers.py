@@ -223,7 +223,7 @@ class kb:
         ]
         if is_admin_user:
             rows.append([Btn(style.btn("Broadcast Suite"), callback_data="broadcast_menu")])
-        rows.append([Btn(style.btn("👨‍💻 DEV"), callback_data="dev_contact")])
+        rows.append([Btn(style.btn("👨‍💻 DEV"), url=config.owner_contact_url())])
         return Markup(rows)
 
     @staticmethod
@@ -235,117 +235,12 @@ class kb:
         return Markup([[Btn(style.btn("Cancel"), callback_data=target)]])
 
     @staticmethod
-    def chat_list(chats: list, page: int = 1, page_size: int = 5) -> Markup:
-        import math
-        total_pages = max(1, math.ceil(len(chats) / page_size))
-        page = min(max(1, page), total_pages)
-        slice_ = chats[(page - 1) * page_size : page * page_size]
-
-        rows = []
-        for c in slice_:
-            state = style.on(c.get("auto_approve", True))
-            title = c.get("title", f"Chat {c.get('chat_id')}")
-            rows.append([Btn(f"{title}  ·  {state}", callback_data=f"chat:{c['chat_id']}")])
-
-        nav = []
-        if page > 1:
-            nav.append(Btn(style.btn("Previous"), callback_data=f"chats:{page - 1}"))
-        nav.append(Btn(f"{page}/{total_pages}", callback_data="noop"))
-        if page < total_pages:
-            nav.append(Btn(style.btn("Next"), callback_data=f"chats:{page + 1}"))
-
-        if nav:
-            rows.append(nav)
-
-        rows.append([
-            Btn(style.btn("Refresh"), callback_data=f"chats:{page}"),
-            Btn(style.btn("Main Menu"), callback_data="main"),
-        ])
-        return Markup(rows)
-
-    @staticmethod
-    def chat_settings(chat_id: int, cfg: dict) -> Markup:
-        aa = style.on(cfg.get("auto_approve", True))
-        cap = style.on(cfg.get("captcha", False))
-        wel = style.on(cfg.get("welcome", {}).get("enabled", True))
-        pfp = style.on(cfg.get("filters", {}).get("require_pfp", False))
-        cas = style.on(cfg.get("filters", {}).get("cas_check", True))
-        delay = cfg.get("delay", 0)
-
-        return Markup([
-            [Btn(f"{style.btn('Auto-Approve')}  ·  {aa}", callback_data=f"toggle:aa:{chat_id}")],
-            [
-                Btn(f"{style.btn('Captcha')}  ·  {cap}", callback_data=f"toggle:cap:{chat_id}"),
-                Btn(f"{style.btn('Delay')}  ·  {delay}s", callback_data=f"set_delay:{chat_id}"),
-            ],
-            [
-                Btn(f"{style.btn('Welcome')}  ·  {wel}", callback_data=f"welcome:{chat_id}"),
-            ],
-            [
-                Btn(f"{style.btn('Require Avatar')}  ·  {pfp}", callback_data=f"toggle:pfp:{chat_id}"),
-                Btn(f"{style.btn('Anti-Spam CAS')}  ·  {cas}", callback_data=f"toggle:cas:{chat_id}"),
-            ],
-            [
-                Btn(style.btn("Backlog Actions"), callback_data=f"mass:{chat_id}"),
-                Btn(style.btn("Analytics"), callback_data=f"chat_stats:{chat_id}"),
-            ],
-            [
-                Btn(style.btn("Remove Chat"), callback_data=f"del_chat:{chat_id}"),
-                Btn(style.btn("Channels List"), callback_data="chats:1"),
-            ],
-        ])
-
-    @staticmethod
-    def delay_picker(chat_id: int) -> Markup:
-        opts = [
-            (style.btn("Instant (0s)"), 0),
-            (style.btn("5 Seconds"), 5),
-            (style.btn("15 Seconds"), 15),
-            (style.btn("30 Seconds"), 30),
-            (style.btn("1 Minute"), 60),
-            (style.btn("5 Minutes"), 300),
-        ]
-        rows = []
-        row = []
-        for label, val in opts:
-            row.append(Btn(label, callback_data=f"delay:{chat_id}:{val}"))
-            if len(row) == 2:
-                rows.append(row)
-                row = []
-        if row:
-            rows.append(row)
-        rows.append([Btn(style.btn("Back"), callback_data=f"chat:{chat_id}")])
-        return Markup(rows)
-
-    @staticmethod
     def mass_actions(chat_id: int) -> Markup:
         return Markup([
             [Btn(style.btn("Approve All Pending"), callback_data=f"mass_approve:{chat_id}")],
             [Btn(style.btn("Decline All Pending"), callback_data=f"mass_decline:{chat_id}")],
             [Btn(style.btn("Export Pending CSV"), callback_data=f"mass_export:{chat_id}")],
-            [Btn(style.btn("Back to Settings"), callback_data=f"chat:{chat_id}")],
-        ])
-
-    @staticmethod
-    def welcome_editor(chat_id: int, wcfg: dict) -> Markup:
-        en = style.on(wcfg.get("enabled", True))
-        pm = style.btn("Direct Message") if wcfg.get("send_pm", True) else style.btn("In Chat")
-        img_count = len(wcfg.get("welcome_images") or [])
-        has_other_media = bool(wcfg.get("media_id"))
-        if img_count:
-            media_label = f"{style.btn('Media')}  ·  {img_count} photo{'s' if img_count != 1 else ''} (random)"
-        elif has_other_media:
-            media_label = f"{style.btn('Media')}  ·  1 file"
-        else:
-            media_label = style.btn("Attach Media")
-
-        return Markup([
-            [Btn(f"{style.btn('Status')}  ·  {en}", callback_data=f"toggle:wel:{chat_id}")],
-            [Btn(f"{style.btn('Target')}  ·  {pm}", callback_data=f"toggle:wel_pm:{chat_id}")],
-            [Btn(style.btn("Edit Welcome Text"), callback_data=f"set_wel_text:{chat_id}")],
-            [Btn(media_label, callback_data=f"set_wel_media:{chat_id}")],
-            [Btn(style.btn("Preview Message"), callback_data=f"preview_wel:{chat_id}")],
-            [Btn(style.btn("Back to Settings"), callback_data=f"chat:{chat_id}")],
+            [Btn(style.btn("Back to Settings"), callback_data=f"mchnls_chat:{chat_id}")],
         ])
 
 

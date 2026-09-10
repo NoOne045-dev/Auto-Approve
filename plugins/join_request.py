@@ -163,6 +163,35 @@ async def handle_chat_join_request(client: Client, req: ChatJoinRequest):
     if not cfg.get("auto_approve", True):
         return  # Auto-approval disabled for this chat
 
+    # Bot-wide ban list (admin.py: /ban) — declined everywhere, no exceptions.
+    from plugins.admin import is_banned
+    if await is_banned(user.id):
+        LOGGER.info(f"Declined banned user {user.id} in {chat.id}")
+        try:
+            await client.decline_chat_join_request(chat_id=chat.id, user_id=user.id)
+            await db.bump_stat(chat.id, approved=False)
+        except Exception:
+            pass
+        return
+
+    # Force-subscribe gate (admin.py: /fsub) — must be a member of every
+    # configured fsub channel before any join request gets approved.
+    from plugins.admin import check_fsub
+    missing = await check_fsub(client, user.id)
+    if missing:
+        lines = [f"• {ch.get('title', ch['chat_id'])}" for ch in missing]
+        try:
+            await client.send_message(
+                user.id,
+                f"{style.h('Join Some Channels First')}\n\n"
+                f"To get approved into <b>{fmt.escape(chat.title)}</b>, join these first, "
+                f"then send a new join request:\n\n" + "\n".join(lines),
+            )
+        except Exception:
+            pass
+        LOGGER.info(f"Held request from {user.id} in {chat.id} — missing fsub: {[c['chat_id'] for c in missing]}")
+        return  # request stays pending; user can retry after joining
+
     # Check Anti-Spam filters
     passed, reason = await check_spam(user, cfg.get("filters", {}), client)
     if not passed:

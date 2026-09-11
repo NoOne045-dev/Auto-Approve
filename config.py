@@ -123,8 +123,11 @@ def is_admin(user_id: int) -> bool:
 
 def owner_contact_url() -> str:
     """
-    tg://user?id=<id> opens a DM with OWNER_ID directly — works even
-    without a public @username and needs no manual URL to edit before
-    commit. Falls back to OWNER_CONTACT_URL only if OWNER_ID isn't set.
+    Prefers the explicitly configured OWNER_CONTACT_URL (a real
+    https://t.me/username link) since tg://user?id= deep links don't
+    reliably open for every client. Only falls back to the tg://user?id=
+    deep link when OWNER_CONTACT_URL is still the default placeholder.
     """
+    if OWNER_CONTACT_URL and OWNER_CONTACT_URL != "https://t.me/telegram":
+        return OWNER_CONTACT_URL
     return f"tg://user?id={OWNER_ID}" if OWNER_ID else OWNER_CONTACT_URL

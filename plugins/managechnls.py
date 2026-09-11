@@ -130,8 +130,9 @@ async def _render_channel_list(client: Client, target, user_id: int, page: int =
 
 # ─── Per-Channel Control Center Menu ────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r"^mchnls_chat:(-?\d+)$"))
-async def cb_mchnls_chat(client: Client, q: CallbackQuery):
-    chat_id = int(q.matches[0].group(1))
+async def cb_mchnls_chat(client: Client, q: CallbackQuery, chat_id: Optional[int] = None):
+    if chat_id is None:
+        chat_id = int(q.matches[0].group(1))
     uid = q.from_user.id
 
     # Permission check via core/permissions.py
@@ -274,7 +275,7 @@ async def cb_mchnls_delay_set(client: Client, q: CallbackQuery):
     await db.update_chat_key(chat_id, "delay", delay)
     invalidate_chat(chat_id)
     await q.answer(f"Delay set to {delay} seconds!", show_alert=True)
-    await cb_mchnls_chat(client, q)
+    await cb_mchnls_chat(client, q, chat_id=chat_id)
 
 
 # ─── Remove Chat ─────────────────────────────────────────────────────────────
@@ -348,7 +349,7 @@ async def cb_mchnls_tgl(client: Client, q: CallbackQuery):
 
     invalidate_chat(chat_id)
     await q.answer(f"Setting updated!")
-    await cb_mchnls_chat(client, q)
+    await cb_mchnls_chat(client, q, chat_id=chat_id)
 
 
 # ─── Welcome Message Editor ─────────────────────────────────────────────────

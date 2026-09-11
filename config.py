@@ -112,6 +112,46 @@ def validate_session_encryption_key() -> bool:
         return False
 
 
+# ─── Every Registered Command (single source of truth) ─────────────────────
+# Several plugins (managechnls.py, schedule.py, session.py) register a
+# private-message "catch-all" handler to collect free-text input for an
+# in-progress wizard/editor (welcome text, schedule time, login OTP, etc).
+# Each catch-all excludes real bot commands via `~filters.command([...])`
+# so that e.g. sending /ban mid-wizard runs /ban instead of being swallowed
+# as literal wizard input. That list used to be hand-copied per file and
+# silently went stale every time a new command/alias was added elsewhere
+# (found via audit: /health, /system, /defaults, /mysettings,
+# /defaultsettings, /q, /queue_status, /bulk_approve, /approve_pending,
+# /plan, /quota, /usage, /myplan were all missing from one or more of the
+# three lists — meaning e.g. typing /defaults while mid-login would get
+# silently treated as OTP/2FA input instead of opening /defaults).
+# Import this list instead of hand-maintaining another copy.
+ALL_COMMANDS: List[str] = [
+    # admin.py
+    "ban", "unban", "banlist", "banned", "fsub",
+    # broadcast.py
+    "broadcast",
+    # logs.py
+    "logs",
+    # managechnls.py
+    "managechnls", "managechannels", "channels", "manage",
+    # pending_request.py
+    "approveall", "bulk_approve", "approve_pending", "queue", "queue_status", "q",
+    # plan.py
+    "plan", "quota", "usage", "myplan",
+    # schedule.py
+    "schedule", "schedules",
+    # session.py
+    "login", "logout", "sessions", "session",
+    # start.py
+    "start", "help",
+    # stats.py
+    "stats", "ping", "health", "system",
+    # user_defaults.py
+    "defaults", "mysettings", "defaultsettings",
+]
+
+
 # ─── Helper Functions ───────────────────────────────────────────────────────
 def is_owner(user_id: int) -> bool:
     return OWNER_ID != 0 and user_id == OWNER_ID

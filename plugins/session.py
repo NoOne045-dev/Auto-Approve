@@ -220,10 +220,7 @@ async def cmd_sessions(client: Client, msg: Message):
 # ─── Interactive Login Input Handler ────────────────────────────────────────
 @Client.on_message(
     filters.private
-    & ~filters.command([
-        "start", "help", "admin", "settings", "ping", "stats",
-        "broadcast", "channels", "login", "logout", "sessions", "session", "cancel"
-    ])
+    & ~filters.command(config.ALL_COMMANDS)
 )
 async def login_input_handler(client: Client, msg: Message):
     uid = msg.from_user.id

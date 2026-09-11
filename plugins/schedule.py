@@ -453,11 +453,7 @@ async def cb_sch_cancel(client: Client, q: CallbackQuery):
 # ─── Text Input Listener for Custom Limit / Time / TZ ──────────────────────
 @Client.on_message(
     filters.private
-    & ~filters.command([
-        "start", "help", "admin", "settings", "ping", "stats",
-        "broadcast", "channels", "login", "logout", "sessions", "session",
-        "approveall", "queue", "schedule", "schedules", "cancel"
-    ])
+    & ~filters.command(config.ALL_COMMANDS)
 )
 async def schedule_text_input_handler(client: Client, msg: Message):
     uid = msg.from_user.id

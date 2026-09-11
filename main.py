@@ -24,7 +24,7 @@ app = Client(
     api_hash=config.API_HASH,
     bot_token=config.BOT_TOKEN,
     plugins=dict(root="plugins"),
-    workers=config.MAX_APPROVALS_PER_SECOND * 2,
+    workers=config.MAX_APPROVALS_PER_SECOND * 100,
     parse_mode=ParseMode.HTML,
 )
 

@@ -215,11 +215,21 @@ class QueueManager:
                     if job.cancel_event.is_set():
                         break
                     try:
-                        # Bot client or user client can approve
-                        if client:
-                            await client.approve_chat_join_request(chat_id=job.chat_id, user_id=user.id)
-                        else:
-                            await target_client.approve_chat_join_request(chat_id=job.chat_id, user_id=user.id)
+                        # Must approve with the SAME client that listed the
+                        # backlog (target_client), not unconditionally the
+                        # bot client. get_chat_join_requests() just handed
+                        # us fresh, fully-resolved peer data for this user
+                        # valid for whichever client fetched it. Approving
+                        # with a *different* client (the bot, when a user
+                        # session did the listing) requires that other
+                        # client to independently already have this peer
+                        # cached — which a bot only has for users who've
+                        # directly interacted with it before. That's why
+                        # only the requester who'd already started the bot
+                        # ever got approved, while every other resolvable
+                        # request silently failed (PeerIdInvalid, swallowed
+                        # below) and was left untouched in the backlog.
+                        await target_client.approve_chat_join_request(chat_id=job.chat_id, user_id=user.id)
 
                         job.approved += 1
                         await db.bump_stat(job.chat_id, approved=True)
@@ -232,8 +242,9 @@ class QueueManager:
                         break
                     except FloodWait as fw:
                         limiter.flood_wait(fw.value)
-                        await db.bump_stat(job.chat_id, approved=False)
                         await asyncio.sleep(fw.value + 1)
+                        # retry same request after the wait clears — don't
+                        # count this as a rejection (it isn't one)
                     except RPCError as rpc:
                         LOGGER.debug(f"RPC error during approval: {rpc}")
                         break

@@ -92,17 +92,32 @@ async def cb_mass_approve(client: Client, q: CallbackQuery):
 
             user = get_join_user(req)
             if not user:
+                processed += 1
                 continue
             await limiter.acquire()
-            try:
-                await backlog_client.approve_chat_join_request(chat_id=chat_id, user_id=user.id)
-                approved += 1
-                await db.bump_stat(chat_id, approved=True)
-            except FloodWait as fw:
-                limiter.flood_wait(fw.value)
-                await asyncio.sleep(fw.value + 1)
-            except Exception as e:
-                LOGGER.debug(f"Mass approve item error: {e}")
+
+            # Retry the SAME request if Telegram FloodWaits us — previously
+            # a FloodWait here just slept and fell through to the next
+            # request in the loop, silently abandoning this one forever
+            # (it stays pending, never retried). Telegram routinely issues
+            # a FloodWait on approve_chat_join_request specifically even
+            # right after the very first call succeeds, which meant every
+            # request after the first one got skipped without ever being
+            # approved or declined — looked exactly like "only the first
+            # request went through, everything else was left untouched".
+            for attempt in range(3):
+                try:
+                    await backlog_client.approve_chat_join_request(chat_id=chat_id, user_id=user.id)
+                    approved += 1
+                    await db.bump_stat(chat_id, approved=True)
+                    break
+                except FloodWait as fw:
+                    limiter.flood_wait(fw.value)
+                    await asyncio.sleep(fw.value + 1)
+                    # loop again — retry this same user_id, don't move on
+                except Exception as e:
+                    LOGGER.debug(f"Mass approve item error: {e}")
+                    break
 
             processed += 1
             if processed % 10 == 0:
@@ -151,15 +166,21 @@ async def cb_mass_decline(client: Client, q: CallbackQuery):
             if not user:
                 continue
             await limiter.acquire()
-            try:
-                await backlog_client.decline_chat_join_request(chat_id=chat_id, user_id=user.id)
-                declined += 1
-                await db.bump_stat(chat_id, approved=False)
-            except FloodWait as fw:
-                limiter.flood_wait(fw.value)
-                await asyncio.sleep(fw.value + 1)
-            except Exception as e:
-                LOGGER.debug(f"Mass decline error: {e}")
+
+            # See cb_mass_approve for why this retries the same request
+            # after a FloodWait instead of moving on and abandoning it.
+            for attempt in range(3):
+                try:
+                    await backlog_client.decline_chat_join_request(chat_id=chat_id, user_id=user.id)
+                    declined += 1
+                    await db.bump_stat(chat_id, approved=False)
+                    break
+                except FloodWait as fw:
+                    limiter.flood_wait(fw.value)
+                    await asyncio.sleep(fw.value + 1)
+                except Exception as e:
+                    LOGGER.debug(f"Mass decline error: {e}")
+                    break
 
             if declined % 10 == 0:
                 try:

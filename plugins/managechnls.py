@@ -131,6 +131,16 @@ async def _render_channel_list(client: Client, target, user_id: int, page: int =
 # ─── Per-Channel Control Center Menu ────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r"^mchnls_chat:(-?\d+)$"))
 async def cb_mchnls_chat(client: Client, q: CallbackQuery, chat_id: Optional[int] = None):
+    # chat_id is accepted explicitly because other handlers (mchnls_tgl,
+    # mchnls_delay_set) call this function directly to redraw the control
+    # center screen after an update, instead of going through Pyrogram's
+    # dispatch — that means q.matches still holds THEIR regex match, not
+    # this handler's own "^mchnls_chat:(-?\d+)$" pattern. Reading
+    # q.matches[0].group(1) in that case grabbed the wrong group (e.g. the
+    # toggle key "cas" instead of the chat id) and crashed with
+    # ValueError: invalid literal for int(). Only fall back to parsing
+    # q.matches when chat_id isn't supplied by the caller (i.e. this is a
+    # real dispatch through the ^mchnls_chat:(-?\d+)$ regex).
     if chat_id is None:
         chat_id = int(q.matches[0].group(1))
     uid = q.from_user.id
@@ -651,11 +661,7 @@ _media_locks: dict = {}  # serializes welcome_images read-modify-write per user
 # ─── Private Message Listener for Text/Media Input ─────────────────────────
 @Client.on_message(
     filters.private
-    & ~filters.command([
-        "start", "help", "admin", "settings", "ping", "stats", "broadcast",
-        "channels", "managechnls", "managechannels", "login", "logout",
-        "sessions", "session", "approveall", "queue", "schedule", "schedules"
-    ])
+    & ~filters.command(config.ALL_COMMANDS)
 )
 async def mchnls_input_handler(client: Client, msg: Message):
     uid = msg.from_user.id
